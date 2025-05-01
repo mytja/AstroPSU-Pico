@@ -28,6 +28,8 @@ set(PICO_BOARD pico CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 add_subdirectory(./pico-ads1115/lib ads1115)
+add_subdirectory(./pico-sht3x/lib sht3x)
+add_subdirectory(./nmea nmea)
 
 project(AstroPSU-Pico C CXX ASM)
 
@@ -65,6 +67,8 @@ target_link_libraries(AstroPSU-Pico
         hardware_flash
         hardware_adc
         pico-ads1115
+        pico-sht3x
+        nmea
 )
 
 pico_add_extra_outputs(AstroPSU-Pico)
