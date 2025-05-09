@@ -24,6 +24,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <utility>
 
 using namespace std;
 
@@ -36,11 +37,18 @@ bool reserved_addr(uint8_t addr) {
 }
 
 void save_data() {
+    // Flush any pending output before starting
+    //cout << "Writing data!" << endl;
+
     uint8_t *myDataAsBytes = (uint8_t *)&state;
     int myDataSize = sizeof(state);
 
-    int writeSize = (myDataSize / FLASH_PAGE_SIZE) + 1;                        // how many flash pages we're gonna need to write
-    int sectorCount = ((writeSize * FLASH_PAGE_SIZE) / FLASH_SECTOR_SIZE) + 1; // how many flash sectors we're gonna need to erase
+    //cout << "Data size is " << myDataSize << endl;
+
+    int writeSize = (myDataSize / FLASH_PAGE_SIZE) + 1;
+    int sectorCount = ((writeSize * FLASH_PAGE_SIZE) / FLASH_SECTOR_SIZE) + 1;
+    //cout << "Writing size " << writeSize << " with sector count " << sectorCount << endl;
+
     uint32_t interrupts = save_and_disable_interrupts();
     flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE * sectorCount);
     flash_range_program(FLASH_TARGET_OFFSET, myDataAsBytes, FLASH_PAGE_SIZE * writeSize);
@@ -251,30 +259,37 @@ double dew_point(double tempC, double humidity) {
     return (b * gamma) / (a - gamma);
 }
 
-void autodew() {
+pair<double, double> get_dew_point() {
     double temp = 0, hum = 0;
     int count = 0;
-    if(sht3x1.temperature >= -20) {
+    if(sht3x1.humidity >= HUMIDITY_THRESHOLD) {
         temp += sht3x1.temperature;
         hum += sht3x1.humidity;
         count++;
     }
-    if(sht3x2.temperature >= -20) {
+    if(sht3x2.humidity >= HUMIDITY_THRESHOLD) {
         temp += sht3x2.temperature;
         hum += sht3x2.humidity;
         count++;
     }
-    if(sht3x3.temperature >= -20) {
+    if(sht3x3.humidity >= HUMIDITY_THRESHOLD) {
         temp += sht3x3.temperature;
         hum += sht3x3.humidity;
         count++;
     }
-    if(count == 0) return;
+    if(count == 0) return {-1000.0, temp};
 
     temp /= (double)count;
     hum /= (double)count;
 
-    double dp = dew_point(temp, hum);
+    return {dew_point(temp, hum), temp};
+}
+
+void autodew() {
+    pair<double, double> d = get_dew_point();
+    double dp = d.first;
+    double temp = d.second;
+    if(dp == -1000.0) return;
 
     float surface_temp = temp - 2.0; // Adjust offset based on testing
     float margin = 1.0; // Prevents oscillations (adjust as needed)
@@ -282,15 +297,15 @@ void autodew() {
 
     // Simple proportional control (tune Kp for your system)
     float Kp = 10.0;
-    float pwm_duty = max(0.0f, min(100.0f, Kp * error)); // Clamp to 0-100%
+    float pwm_duty = max(0.0f, min(100.0f, Kp * error)) / 100.0f; // Clamp to 0-100%
 
     state.dew1 = pwm_duty * 65535.0f;
     state.dew2 = pwm_duty * 65535.0f;
     state.dew3 = pwm_duty * 65535.0f;
 
-    pwm_set_gpio_level(DEW1, state.dew1);
-    pwm_set_gpio_level(DEW2, state.dew2);
-    pwm_set_gpio_level(DEW3, state.dew3);
+    pwm_set_gpio_level(DEW1, (uint16_t)state.dew1);
+    pwm_set_gpio_level(DEW2, (uint16_t)state.dew2);
+    pwm_set_gpio_level(DEW3, (uint16_t)state.dew3);
 }
 
 bool autodew_timer_callback(__unused struct repeating_timer *t) {
@@ -301,14 +316,10 @@ bool autodew_timer_callback(__unused struct repeating_timer *t) {
     sht3x_read_data(&sht3x3);
 
     autodew();
-
     return true;
 }
 
 int main() {
-    // TODO: Timer for auto-dew functionality
-    // https://github.com/raspberrypi/pico-examples/blob/master/timer/hello_timer/hello_timer.c
-    //
     // TODO: IRQ for voltage cutoff
 
     stdio_init_all();
@@ -321,7 +332,9 @@ int main() {
 #endif
 
 #ifdef SAVE_ENABLED
+#ifdef READ_FLASH_ON_BOOT
     read_data();
+#endif
 #endif
 
     cout << "Read data completed!" << endl;
@@ -429,7 +442,7 @@ int main() {
 #endif
 
     struct repeating_timer autodew_timer;
-    add_repeating_timer_ms(500, autodew_timer_callback, NULL, &autodew_timer);
+    add_repeating_timer_ms(2000, autodew_timer_callback, NULL, &autodew_timer);
 
     adc_gpio_init(28);
     adc_select_input(2);
@@ -507,6 +520,9 @@ int main() {
                     gpio_put(GPS0_ENABLE, true);
                 }
             }
+#ifdef SAVE_ENABLED
+            save_data();
+#endif
             cout << "OK" << endl;
         } else if(commands[0] == "ON") {
             if(commands.size() != 2) {
@@ -557,7 +573,7 @@ int main() {
                 cout << state.dew3 << endl;
             else
                 cout << 0 << endl;
-        } else if(commands[0] == "NAMEGET") {
+        } /*else if(commands[0] == "NAMEGET") {
             if(commands.size() != 2) {
                 cout << "INVALID_COMMAND_ARGS" << endl;
                 continue;
@@ -610,7 +626,7 @@ int main() {
             save_data();
 #endif
             cout << "OK" << endl;
-        } else if(commands[0] == "FLUSH") {
+        } */else if(commands[0] == "FLUSH") {
 #ifdef SAVE_ENABLED
             save_data();
 #endif
@@ -631,6 +647,8 @@ int main() {
                 cout << state.dc4 << endl;
             else if(commands[1] == "DC5")
                 cout << state.dc5 << endl;
+            else if(commands[1] == "AUTODEW")
+                cout << state.autodew << endl;
             else
                 cout << false << endl;
         } else if(commands[0] == "ADCGET") {
@@ -663,6 +681,8 @@ int main() {
                 adc = temperature_calc_ntc(adc);
             if(commands[1] == "EXT3_ANALOG_TEMP")
                 adc = temperature_calc_ntc(adc);
+            if(commands[1] == "DEW_POINT")
+                adc = get_dew_point().first;
             if(commands[1] == "SHT3X1_TEMP") {
                 sht3x_read_data(&sht3x1);
                 adc = sht3x1.temperature;

@@ -28,7 +28,8 @@
 // UART defines
 
 // Flash defines
-//#define SAVE_ENABLED
+#define SAVE_ENABLED
+#define READ_FLASH_ON_BOOT
 
 
 #define EXTERNAL_ADC_ENABLED
@@ -56,7 +57,7 @@
 #define ADS1115_GND_ADDR 0x48
 #define ADS1115_VCC_ADDR 0x49
 
-#define FLASH_TARGET_OFFSET (8 * 256 * 1024) // choosing to start at 8*256K = 1.5MB (512KB remaining for user data)
+const uint32_t FLASH_TARGET_OFFSET = (6 * 256 * 1024); // choosing to start at 6*256K = 1.5MB (512KB remaining for user data)
 
 // ADS1115 resolutions
 #define ADS1115_BIT_TO_MV 0.125
@@ -102,6 +103,7 @@
 #define SHT3X2_ADDRESS SHT3X_I2C_ADDRESS_B
 #define SHT3X3_I2C i2c1
 #define SHT3X3_ADDRESS SHT3X_I2C_ADDRESS_A
+#define HUMIDITY_THRESHOLD 15
 
 struct State {
     uint16_t dew1 = 0;
@@ -114,12 +116,12 @@ struct State {
     bool dc5 = false;
     bool autodew = false;
     bool gps_sleep = false;
-    char dew1_name[64] = {'\0'};
+    /*char dew1_name[64] = {'\0'};
     char dew2_name[64] = {'\0'};
     char dew3_name[64] = {'\0'};
     char dc1_name[64] = {'\0'};
     char dc2_name[64] = {'\0'};
     char dc3_name[64] = {'\0'};
     char dc4_name[64] = {'\0'};
-    char dc5_name[64] = {'\0'};
+    char dc5_name[64] = {'\0'};*/
 };
