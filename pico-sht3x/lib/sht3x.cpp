@@ -28,8 +28,8 @@ void sht3x_read_data(sht3x_t* sht3x) {
     // Due to this being a crude implementation, we will skip CRC checking.
     // That's generally not recommended in production.
     uint8_t dst[6];
-    i2c_write_blocking(sht3x->i2c_port, sht3x->i2c_addr, FETCH_DATA_COMMAND, 2, true);
-    i2c_read_blocking(sht3x->i2c_port, sht3x->i2c_addr, dst, 6, false);
+    i2c_write_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, FETCH_DATA_COMMAND, 2, true, 5000);
+    i2c_read_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, dst, 6, false, 5000);
 
     // Make a 16-bit integer from 2 bytes of data
     uint16_t temp_raw = (dst[0] << 8) | dst[1];

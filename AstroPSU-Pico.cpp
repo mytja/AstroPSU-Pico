@@ -309,6 +309,13 @@ void autodew() {
 }
 
 bool autodew_timer_callback(__unused struct repeating_timer *t) {
+#ifdef WATCHDOG_ENABLED
+#ifdef WATCHDOG_DEBUG
+    cout << "Watchdog updated!" << endl;
+#endif
+    watchdog_update();
+#endif
+
     if(!state.autodew) return true;
 
     sht3x_read_data(&sht3x1);
@@ -413,7 +420,7 @@ int main() {
 
     // Enable the watchdog, requiring the watchdog to be updated every 100ms or the chip will reboot
     // second arg is pause on debug which means the watchdog will pause when stepping through code
-    watchdog_enable(100, 1);
+    watchdog_enable(WATCHDOG_TIMER, 1);
     cout << "Watchdog setup completed!" << endl;
 
     // You need to call this function at least more often than the 100ms in the enable call to prevent a reboot

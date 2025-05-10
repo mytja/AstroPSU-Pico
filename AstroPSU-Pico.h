@@ -1,6 +1,7 @@
 // Watchdog defines
-//#define WATCHDOG_ENABLED
-#define WATCHDOG_TIMER 1000 // 1 second
+#define WATCHDOG_ENABLED
+//#define WATCHDOG_DEBUG
+#define WATCHDOG_TIMER 5000 // 5 seconds
 
 #define DEBUG_WAIT_FOR_USB
 
