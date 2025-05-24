@@ -189,13 +189,17 @@ uint16_t adc_read_value(const string &device) {
 }
 
 void i2c_debug() {
+#ifdef DEBUG_INIT_MESSAGES
     cout << "\nAstroPSU I2C Debug tool";
     cout << "\n\nI2C0\n";
     cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
+#endif
     for(int addr = 0; addr < (1 << 7); ++addr) {
         if(addr % 16 == 0) {
+#ifdef DEBUG_INIT_MESSAGES
             cout << endl
                  << addr / 16 << "0 ";
+#endif
         }
 
         int ret;
@@ -205,14 +209,20 @@ void i2c_debug() {
         else
             ret = i2c_read_blocking(i2c0, addr, &rxdata, 1, false);
 
+#ifdef DEBUG_INIT_MESSAGES
         cout << (ret < 0 ? "." : "@") << "  ";
+#endif
     }
+#ifdef DEBUG_INIT_MESSAGES
     cout << "\n\nI2C1\n";
     cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
+#endif
     for(int addr = 0; addr < (1 << 7); ++addr) {
         if(addr % 16 == 0) {
+#ifdef DEBUG_INIT_MESSAGES
             cout << endl
                  << addr / 16 << "0 ";
+#endif
         }
 
         int ret;
@@ -222,9 +232,13 @@ void i2c_debug() {
         else
             ret = i2c_read_blocking(i2c1, addr, &rxdata, 1, false);
 
+#ifdef DEBUG_INIT_MESSAGES
         cout << (ret < 0 ? "." : "@") << "  ";
+#endif
     }
+#ifdef DEBUG_INIT_MESSAGES
     cout << endl;
+#endif
 }
 
 string gps0_rx;
@@ -360,7 +374,9 @@ int main() {
     pwm_setup(DEW2);
     pwm_setup(DEW3);
 
+#ifdef DEBUG_INIT_MESSAGES
     cout << "PWM setup completed!" << endl;
+#endif
 
     gpio_setup(DC1);
     gpio_setup(DC2);
@@ -368,7 +384,9 @@ int main() {
     gpio_setup(DC4);
     gpio_setup(DC5);
 
+#ifdef DEBUG_INIT_MESSAGES
     cout << "GPIO setup completed!" << endl;
+#endif
 
 #ifdef GPS0_ENABLED
     gpio_init(GPS0_ENABLE);
@@ -395,7 +413,9 @@ int main() {
 #endif
 #endif
 
+#ifdef DEBUG_INIT_MESSAGES
     cout << "Read data completed!" << endl;
+#endif
 
 #ifdef I2C0_ENABLED
     // I2C0 Initialisation. Using it at 400Khz.
@@ -404,7 +424,9 @@ int main() {
     gpio_set_function(I2C0_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C0_SDA);
     gpio_pull_up(I2C0_SCL);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "I2C0 setup completed!" << endl;
+#endif
 #endif
 #ifdef I2C1_ENABLED
     // I2C1 Initialisation. Using it at 400Khz.
@@ -413,12 +435,16 @@ int main() {
     gpio_set_function(I2C1_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C1_SDA);
     gpio_pull_up(I2C1_SCL);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "I2C1 setup completed!" << endl;
 #endif
+#endif
 
-#ifdef I2C_DEBUG
-    // i2c_debug();
+#ifdef DEBUG_I2C
+    i2c_debug();
+#ifdef DEBUG_INIT_MESSAGES
     cout << "I2C debug completed!" << endl;
+#endif
 #endif
 
 #ifdef EXTERNAL_ADC_ENABLED
@@ -426,31 +452,41 @@ int main() {
     ads1115_init(i2c0, ADS1115_GND_ADDR, &adc1);
     ads1115_set_pga(ADS1115_PGA_4_096, &adc1);
     ads1115_set_data_rate(ADS1115_RATE_475_SPS, &adc1);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "ADC1 setup completed!" << endl;
+#endif
 
     // ADS1115, I2C0, VCC
     ads1115_init(i2c0, ADS1115_VCC_ADDR, &adc2);
     ads1115_set_pga(ADS1115_PGA_4_096, &adc2);
     ads1115_set_data_rate(ADS1115_RATE_475_SPS, &adc2);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "ADC2 setup completed!" << endl;
+#endif
 
     // ADS1115, I2C1, GND
     ads1115_init(i2c1, ADS1115_GND_ADDR, &adc3);
     ads1115_set_pga(ADS1115_PGA_4_096, &adc3);
     ads1115_set_data_rate(ADS1115_RATE_475_SPS, &adc3);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "ADC3 setup completed!" << endl;
+#endif
 #endif
 
 #ifdef ACS712_CALIBRATE
     calibrate();
+#ifdef DEBUG_INIT_MESSAGES
     cout << "ACS712 calibration completed: " << state.dc1_zero << " " << state.dc2_zero << endl;
+#endif
 #endif
 
 #ifdef SHT3X_ENABLED
     sht3x_init(SHT3X1_I2C, SHT3X1_ADDRESS, &sht3x1);
     sht3x_init(SHT3X2_I2C, SHT3X2_ADDRESS, &sht3x2);
     sht3x_init(SHT3X3_I2C, SHT3X3_ADDRESS, &sht3x3);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "SHT setup completed!" << endl;
+#endif
 #endif
 
 #ifdef WATCHDOG_ENABLED
@@ -463,7 +499,9 @@ int main() {
     // Enable the watchdog, requiring the watchdog to be updated every 100ms or the chip will reboot
     // second arg is pause on debug which means the watchdog will pause when stepping through code
     watchdog_enable(WATCHDOG_TIMER, 1);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "Watchdog setup completed!" << endl;
+#endif
 
     // You need to call this function at least more often than the 100ms in the enable call to prevent a reboot
     watchdog_update();
@@ -476,12 +514,16 @@ int main() {
     // Set datasheet for more information on function select
     gpio_set_function(UART0_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "UART0 setup completed!" << endl;
+#endif
 #endif
 
     adc_gpio_init(28);
     adc_select_input(2);
+#ifdef DEBUG_INIT_MESSAGES
     cout << "iADC setup completed!" << endl;
+#endif
 
     while(true) {
         string c;

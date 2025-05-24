@@ -4,6 +4,11 @@
 #define WATCHDOG_TIMER 5000 // 5 seconds
 
 #define DEBUG_WAIT_FOR_USB
+//#define DEBUG_INIT_MESSAGES
+
+// DO NOT REMOVE THIS TOGGLE - IF THIS SHIT ISN'T TURNED ON, IT FOR SOME DUMBFUCK REASON
+// CRASHES main(). DO NOT TURN THIS OFF!!!!!!!!!!!!!!
+#define DEBUG_I2C
 
 // I2C defines
 #define I2C0_ENABLED
@@ -12,7 +17,6 @@
 #define I2C0_SCL 21
 #define I2C1_SDA 2
 #define I2C1_SCL 3
-#define I2C_DEBUG
 
 // Dew heater PWMs
 #define DEW3 6
