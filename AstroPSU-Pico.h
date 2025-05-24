@@ -18,6 +18,7 @@
 #define DEW3 6
 #define DEW2 7
 #define DEW1 8
+#define AUTODEW_FORCE_TEMPERATURE 10
 
 // DC jacks
 #define DC1 9
@@ -63,10 +64,11 @@ const uint32_t FLASH_TARGET_OFFSET = (6 * 256 * 1024); // choosing to start at 6
 // ADS1115 resolutions
 #define ADS1115_BIT_TO_MV 0.125
 
-// ADS
+// ACS712
 // Voltage on the ACS712 current sensor is 3.3V, however Pico's linear voltage regulator
 // is not quite spot on, so we account for the usually higher voltage
 // Base voltage on the ACS712 is half the VCC.
+#define ACS712_CALIBRATE
 #define ACS712_REPEATED_READS 50
 #define ACS712_OFFSET 1688
 #define ACS712_30A_RESOLUTION 66.7
@@ -117,6 +119,15 @@ struct State {
     bool dc5 = false;
     bool autodew = false;
     bool gps_sleep = false;
+    uint16_t dew1_zero = 0;
+    uint16_t dew2_zero = 0;
+    uint16_t dew3_zero = 0;
+    uint16_t dc1_zero = 0;
+    uint16_t dc2_zero = 0;
+    uint16_t dc3_zero = 0;
+    uint16_t dc4_zero = 0;
+    uint16_t dc5_zero = 0;
+    uint16_t input_zero = 0;
     /*char dew1_name[64] = {'\0'};
     char dew2_name[64] = {'\0'};
     char dew3_name[64] = {'\0'};

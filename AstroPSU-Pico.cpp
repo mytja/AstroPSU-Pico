@@ -289,14 +289,20 @@ void autodew() {
     pair<double, double> d = get_dew_point();
     double dp = d.first;
     double temp = d.second;
+
+#ifdef AUTODEW_FORCE_TEMPERATURE
+    temp = AUTODEW_FORCE_TEMPERATURE;
+    //dp = 5.0;
+#endif
+
     if(dp == -1000.0) return;
 
-    float surface_temp = temp - 2.0; // Adjust offset based on testing
-    float margin = 1.0; // Prevents oscillations (adjust as needed)
+    float surface_temp = temp - 0.2; // Adjust offset based on testing
+    float margin = 0.8; // Prevents oscillations (adjust as needed)
     float error = (dp + margin) - surface_temp;
 
     // Simple proportional control (tune Kp for your system)
-    float Kp = 10.0;
+    float Kp = 2.15;
     float pwm_duty = max(0.0f, min(100.0f, Kp * error)) / 100.0f; // Clamp to 0-100%
 
     state.dew1 = pwm_duty * 65535.0f;
@@ -326,6 +332,18 @@ bool autodew_timer_callback(__unused struct repeating_timer *t) {
     return true;
 }
 
+void calibrate() {
+    state.dc1_zero = adc_read_value("DC1_CURRENT");
+    state.dc2_zero = adc_read_value("DC2_CURRENT");
+    state.dc3_zero = adc_read_value("DC3_CURRENT");
+    state.dc4_zero = adc_read_value("DC4_CURRENT");
+    state.dc5_zero = adc_read_value("DC5_CURRENT");
+    state.dew1_zero = adc_read_value("DEW1_CURRENT");
+    state.dew2_zero = adc_read_value("DEW2_CURRENT");
+    state.dew3_zero = adc_read_value("DEW3_CURRENT");
+    state.input_zero = adc_read_value("INPUT_CURRENT");
+}
+
 int main() {
     // TODO: IRQ for voltage cutoff
 
@@ -337,14 +355,6 @@ int main() {
         sleep_ms(100);
     }
 #endif
-
-#ifdef SAVE_ENABLED
-#ifdef READ_FLASH_ON_BOOT
-    read_data();
-#endif
-#endif
-
-    cout << "Read data completed!" << endl;
 
     pwm_setup(DEW1);
     pwm_setup(DEW2);
@@ -359,6 +369,33 @@ int main() {
     gpio_setup(DC5);
 
     cout << "GPIO setup completed!" << endl;
+
+#ifdef GPS0_ENABLED
+    gpio_init(GPS0_ENABLE);
+    gpio_set_dir(GPS0_ENABLE, GPIO_OUT);
+    gpio_put(GPS0_ENABLE, !state.gps_sleep);
+    gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
+#endif
+
+    struct repeating_timer autodew_timer;
+    add_repeating_timer_ms(2000, autodew_timer_callback, NULL, &autodew_timer);
+
+#ifdef SAVE_ENABLED
+#ifdef READ_FLASH_ON_BOOT
+    read_data();
+    gpio_put(DC1, state.dc1);
+    gpio_put(DC2, state.dc2);
+    gpio_put(DC3, state.dc3);
+    gpio_put(DC4, state.dc4);
+    gpio_put(DC5, state.dc5);
+    gpio_put(GPS0_ENABLE, !state.gps_sleep);
+    pwm_set_gpio_level(DEW1, state.dew1);
+    pwm_set_gpio_level(DEW2, state.dew2);
+    pwm_set_gpio_level(DEW3, state.dew3);
+#endif
+#endif
+
+    cout << "Read data completed!" << endl;
 
 #ifdef I2C0_ENABLED
     // I2C0 Initialisation. Using it at 400Khz.
@@ -404,6 +441,11 @@ int main() {
     cout << "ADC3 setup completed!" << endl;
 #endif
 
+#ifdef ACS712_CALIBRATE
+    calibrate();
+    cout << "ACS712 calibration completed: " << state.dc1_zero << " " << state.dc2_zero << endl;
+#endif
+
 #ifdef SHT3X_ENABLED
     sht3x_init(SHT3X1_I2C, SHT3X1_ADDRESS, &sht3x1);
     sht3x_init(SHT3X2_I2C, SHT3X2_ADDRESS, &sht3x2);
@@ -436,20 +478,6 @@ int main() {
     gpio_set_function(UART0_RX_PIN, GPIO_FUNC_UART);
     cout << "UART0 setup completed!" << endl;
 #endif
-
-#ifdef GPS0_ENABLED
-    gpio_init(GPS0_ENABLE);
-    gpio_set_dir(GPS0_ENABLE, GPIO_OUT);
-    if(state.gps_sleep) {
-        gpio_put(GPS0_ENABLE, false);
-    } else {
-        gpio_put(GPS0_ENABLE, true);
-    }
-    gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
-#endif
-
-    struct repeating_timer autodew_timer;
-    add_repeating_timer_ms(2000, autodew_timer_callback, NULL, &autodew_timer);
 
     adc_gpio_init(28);
     adc_select_input(2);
@@ -665,23 +693,23 @@ int main() {
             }
             float adc = adc_read_value(commands[1]);
             if(commands[1] == "DEW1_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DEW1_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew1_zero) * ADS1115_BIT_TO_MV) / DEW1_CURRENT_RESOLUTION;
             if(commands[1] == "DEW2_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DEW2_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew2_zero) * ADS1115_BIT_TO_MV) / DEW2_CURRENT_RESOLUTION;
             if(commands[1] == "DEW3_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DEW3_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew3_zero) * ADS1115_BIT_TO_MV) / DEW3_CURRENT_RESOLUTION;
             if(commands[1] == "DC1_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DC1_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc1_zero) * ADS1115_BIT_TO_MV) / DC1_CURRENT_RESOLUTION;
             if(commands[1] == "DC2_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DC2_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc2_zero) * ADS1115_BIT_TO_MV) / DC2_CURRENT_RESOLUTION;
             if(commands[1] == "DC3_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DC3_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc3_zero) * ADS1115_BIT_TO_MV) / DC3_CURRENT_RESOLUTION;
             if(commands[1] == "DC4_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DC4_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc4_zero) * ADS1115_BIT_TO_MV) / DC4_CURRENT_RESOLUTION;
             if(commands[1] == "DC5_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / DC5_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc5_zero) * ADS1115_BIT_TO_MV) / DC5_CURRENT_RESOLUTION;
             if(commands[1] == "INPUT_CURRENT")
-                adc = ((adc * ADS1115_BIT_TO_MV) - ACS712_OFFSET) / INPUT_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.input_zero) * ADS1115_BIT_TO_MV) / INPUT_CURRENT_RESOLUTION;
             if(commands[1] == "EXT1_ANALOG_TEMP")
                 adc = temperature_calc_ntc(adc);
             if(commands[1] == "EXT2_ANALOG_TEMP")
@@ -734,6 +762,15 @@ int main() {
                 cout << satelliteNum << endl;
                 continue;
             }
+            if(commands[1] == "DEW1") {
+                adc = (state.dew1 * 100.0f) / 65535.0f;
+            }
+            if(commands[1] == "DEW2") {
+                adc = (state.dew2 * 100.0f) / 65535.0f;
+            }
+            if(commands[1] == "DEW3") {
+                adc = (state.dew3 * 100.0f) / 65535.0f;
+            }
             adc = round(adc * 100.0) / 100.0;
             cout << adc << endl;
         } else if(commands[0] == "RAWADCGET") {
@@ -747,6 +784,9 @@ int main() {
             watchdog_reboot(0, 0, 0);
         } else if(commands[0] == "I2CDEBUG") {
             i2c_debug();
+            cout << "OK" << endl;
+        } else if(commands[0] == "CALIBRATE") {
+            calibrate();
             cout << "OK" << endl;
         } else {
             cout << "UNDEFINED_COMMAND" << endl;
