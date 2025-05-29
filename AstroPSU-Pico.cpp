@@ -1,5 +1,6 @@
 #include "pico/binary_info.h"
 #include "pico/stdlib.h"
+#include "pico/time.h"
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
 #include "hardware/watchdog.h"
@@ -14,6 +15,7 @@
 #include "AstroPSU-Pico.h"
 #include "ads1115.h"
 #include "sht3x.h"
+#include "bmi160.h"
 
 #include <nmea/sentence.hpp>
 #include <nmea/message/gga.hpp>
@@ -30,10 +32,29 @@ using namespace std;
 
 State state;
 
+struct ads1115_adc adc1;
+struct ads1115_adc adc2;
+struct ads1115_adc adc3;
+struct sht3x sht3x1;
+struct sht3x sht3x2;
+struct sht3x sht3x3;
+struct bmi160 bmi160_1;
+struct bmi160 bmi160_2;
+struct bmi160 bmi160_3;
+
+string gps0_rx;
+double lat = 0, lng = 0;
+float elevation = 0;
+int satelliteNum = 0;
+
 // I2C reserves some addresses for special purposes. We exclude these from the scan.
 // These are any addresses of the form 000 0xxx or 111 1xxx
 bool reserved_addr(uint8_t addr) {
     return (addr & 0x78) == 0 || (addr & 0x78) == 0x78;
+}
+
+uint32_t millis() {
+    return to_ms_since_boot(get_absolute_time());
 }
 
 void save_data() {
@@ -113,13 +134,6 @@ int translate_to_pin(const string &pin) {
     return -1;
 }
 
-struct ads1115_adc adc1;
-struct ads1115_adc adc2;
-struct ads1115_adc adc3;
-struct sht3x sht3x1;
-struct sht3x sht3x2;
-struct sht3x sht3x3;
-
 float temperature_calc_ntc(uint16_t adc) {
     // https://arduinodiy.wordpress.com/2015/11/10/measuring-temperature-with-ntc-the-steinhart-hart-formula/
     float ntc_resistance = NTC_RESISTOR / ((65535.0F / (float)adc) - 1);
@@ -188,18 +202,16 @@ uint16_t adc_read_value(const string &device) {
     return 0;
 }
 
-void i2c_debug() {
-#ifdef DEBUG_INIT_MESSAGES
-    cout << "\nAstroPSU I2C Debug tool";
-    cout << "\n\nI2C0\n";
-    cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
-#endif
+void i2c_debug(bool isForce) {
+    if(DEBUG_INIT_MESSAGES || isForce) {
+        cout << "\nAstroPSU I2C Debug tool";
+        cout << "\n\nI2C0\n";
+        cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
+    }
     for(int addr = 0; addr < (1 << 7); ++addr) {
         if(addr % 16 == 0) {
-#ifdef DEBUG_INIT_MESSAGES
-            cout << endl
-                 << addr / 16 << "0 ";
-#endif
+            if(DEBUG_INIT_MESSAGES || isForce)
+                cout << endl << addr / 16 << "0 ";
         }
 
         int ret;
@@ -209,20 +221,18 @@ void i2c_debug() {
         else
             ret = i2c_read_blocking(i2c0, addr, &rxdata, 1, false);
 
-#ifdef DEBUG_INIT_MESSAGES
-        cout << (ret < 0 ? "." : "@") << "  ";
-#endif
+        if(DEBUG_INIT_MESSAGES || isForce)
+            cout << (ret < 0 ? "." : "@") << "  ";
     }
-#ifdef DEBUG_INIT_MESSAGES
-    cout << "\n\nI2C1\n";
-    cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
-#endif
+    if(DEBUG_INIT_MESSAGES || isForce) {
+        cout << "\n\nI2C1\n";
+        cout << "   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F";
+    }
+
     for(int addr = 0; addr < (1 << 7); ++addr) {
         if(addr % 16 == 0) {
-#ifdef DEBUG_INIT_MESSAGES
-            cout << endl
-                 << addr / 16 << "0 ";
-#endif
+            if(DEBUG_INIT_MESSAGES || isForce)
+                cout << endl << addr / 16 << "0 ";
         }
 
         int ret;
@@ -232,27 +242,21 @@ void i2c_debug() {
         else
             ret = i2c_read_blocking(i2c1, addr, &rxdata, 1, false);
 
-#ifdef DEBUG_INIT_MESSAGES
-        cout << (ret < 0 ? "." : "@") << "  ";
-#endif
+        if(DEBUG_INIT_MESSAGES || isForce)
+            cout << (ret < 0 ? "." : "@") << "  ";
     }
-#ifdef DEBUG_INIT_MESSAGES
-    cout << endl;
-#endif
+    if(DEBUG_INIT_MESSAGES || isForce)    cout << endl;
 }
 
-string gps0_rx;
-double lat = 0, lng = 0;
-float elevation = 0;
-int satelliteNum = 0;
-
-void gps0_callback(uint gpio, uint32_t events) {
+void gps0_callback() {
     char ch;
+    //cout << "Callback " << uart_is_readable(UART_ID) << endl;
     while(uart_is_readable(UART_ID)) {
         ch = uart_getc(UART_ID);
         //cout << ch;
         gps0_rx += ch;
         if(ch == '\n') {
+            //cout << flush;
             nmea::sentence nmea_sentence(gps0_rx);
             if(nmea_sentence.type() == "GGA") {
                 nmea::gga gga(nmea_sentence);
@@ -328,6 +332,37 @@ void autodew() {
     pwm_set_gpio_level(DEW3, (uint16_t)state.dew3);
 }
 
+int refresh_gyro_data() {
+    int err = bmi160_setup(&bmi160_1);
+    if(err < 0) bmi160_trigger_error(&bmi160_1);
+    else {
+        bmi160_median(&bmi160_1);
+        return 0;
+    }
+    //cout << err << endl;
+
+    err = bmi160_setup(&bmi160_2);
+    if(err < 0) bmi160_trigger_error(&bmi160_2);
+    else {
+        bmi160_median(&bmi160_2);
+        return 1;
+    }
+    //cout << err << endl;
+
+    err = bmi160_setup(&bmi160_3);
+    if(err < 0) bmi160_trigger_error(&bmi160_3);
+    else {
+        bmi160_median(&bmi160_3);
+        return 2;
+    }
+    //cout << err << endl;
+
+    return -1;
+}
+
+uint32_t lastMeasurementTime = 0;
+float angles[] = {0, 0};
+
 bool autodew_timer_callback(__unused struct repeating_timer *t) {
 #ifdef WATCHDOG_ENABLED
 #ifdef WATCHDOG_DEBUG
@@ -335,6 +370,14 @@ bool autodew_timer_callback(__unused struct repeating_timer *t) {
 #endif
     watchdog_update();
 #endif
+
+    int gyro = refresh_gyro_data();
+    if(gyro != -1) {
+        bmi160_calculate_absolute_angle(gyro == 0 ? &bmi160_1 : (gyro == 1 ? &bmi160_2 : &bmi160_3), angles);
+    } else {
+        angles[0] = 0;
+        angles[1] = 0;
+    }
 
     if(!state.autodew) return true;
 
@@ -388,15 +431,8 @@ int main() {
     cout << "GPIO setup completed!" << endl;
 #endif
 
-#ifdef GPS0_ENABLED
-    gpio_init(GPS0_ENABLE);
-    gpio_set_dir(GPS0_ENABLE, GPIO_OUT);
-    gpio_put(GPS0_ENABLE, !state.gps_sleep);
-    gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
-#endif
-
     struct repeating_timer autodew_timer;
-    add_repeating_timer_ms(2000, autodew_timer_callback, NULL, &autodew_timer);
+    add_repeating_timer_ms(1000, autodew_timer_callback, NULL, &autodew_timer);
 
 #ifdef SAVE_ENABLED
 #ifdef READ_FLASH_ON_BOOT
@@ -418,8 +454,8 @@ int main() {
 #endif
 
 #ifdef I2C0_ENABLED
-    // I2C0 Initialisation. Using it at 400Khz.
-    i2c_init(i2c0, 400 * 1000);
+    // I2C0 Initialisation. Using it at 100Khz.
+    i2c_init(i2c0, 100 * 1000);
     gpio_set_function(I2C0_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C0_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C0_SDA);
@@ -429,8 +465,8 @@ int main() {
 #endif
 #endif
 #ifdef I2C1_ENABLED
-    // I2C1 Initialisation. Using it at 400Khz.
-    i2c_init(i2c1, 400 * 1000);
+    // I2C1 Initialisation. Using it at 100Khz.
+    i2c_init(i2c1, 100 * 1000);
     gpio_set_function(I2C1_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C1_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(I2C1_SDA);
@@ -441,7 +477,7 @@ int main() {
 #endif
 
 #ifdef DEBUG_I2C
-    i2c_debug();
+    i2c_debug(false);
 #ifdef DEBUG_INIT_MESSAGES
     cout << "I2C debug completed!" << endl;
 #endif
@@ -489,6 +525,15 @@ int main() {
 #endif
 #endif
 
+#ifdef BMI160_ENABLED
+    bmi160_init(BMI160_1_I2C, BMI160_1_ADDRESS, &bmi160_1);
+    bmi160_init(BMI160_2_I2C, BMI160_2_ADDRESS, &bmi160_2);
+    bmi160_init(BMI160_3_I2C, BMI160_3_ADDRESS, &bmi160_3);
+#ifdef DEBUG_INIT_MESSAGES
+    cout << "BMI160 setup completed!" << endl;
+#endif
+#endif
+
 #ifdef WATCHDOG_ENABLED
     // Watchdog example code
     if(watchdog_caused_reboot()) {
@@ -517,6 +562,20 @@ int main() {
 #ifdef DEBUG_INIT_MESSAGES
     cout << "UART0 setup completed!" << endl;
 #endif
+#endif
+
+#ifdef GPS0_ENABLED
+    gpio_init(GPS0_ENABLE);
+    gpio_set_dir(GPS0_ENABLE, GPIO_OUT);
+    gpio_put(GPS0_ENABLE, !state.gps_sleep);
+    uart_set_hw_flow(UART_ID, false, false);
+    uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
+    uart_set_fifo_enabled(UART_ID, false);
+    uart_set_irq_enables(UART_ID, true, false);
+    irq_set_exclusive_handler(UART0_IRQ, gps0_callback);
+    irq_set_enabled(UART0_IRQ, true);
+    irq_set_priority(UART0_IRQ, PICO_HIGHEST_IRQ_PRIORITY);
+    //gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
 #endif
 
     adc_gpio_init(28);
@@ -813,6 +872,12 @@ int main() {
             if(commands[1] == "DEW3") {
                 adc = (state.dew3 * 100.0f) / 65535.0f;
             }
+            if(commands[1] == "GYRO_X") {
+                adc = angles[0];
+            }
+            if(commands[1] == "GYRO_Y") {
+                adc = angles[1];
+            }
             adc = round(adc * 100.0) / 100.0;
             cout << adc << endl;
         } else if(commands[0] == "RAWADCGET") {
@@ -825,7 +890,10 @@ int main() {
             cout << "OK_BYE" << endl;
             watchdog_reboot(0, 0, 0);
         } else if(commands[0] == "I2CDEBUG") {
-            i2c_debug();
+            i2c_debug(true);
+            cout << "OK" << endl;
+        } else if(commands[0] == "REFRESH_DATA") {
+            refresh_gyro_data();
             cout << "OK" << endl;
         } else if(commands[0] == "CALIBRATE") {
             calibrate();

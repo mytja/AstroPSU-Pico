@@ -4,7 +4,7 @@
 #define WATCHDOG_TIMER 5000 // 5 seconds
 
 #define DEBUG_WAIT_FOR_USB
-//#define DEBUG_INIT_MESSAGES
+const bool DEBUG_INIT_MESSAGES = false;
 
 // DO NOT REMOVE THIS TOGGLE - IF THIS SHIT ISN'T TURNED ON, IT FOR SOME DUMBFUCK REASON
 // CRASHES main(). DO NOT TURN THIS OFF!!!!!!!!!!!!!!
@@ -22,7 +22,7 @@
 #define DEW3 6
 #define DEW2 7
 #define DEW1 8
-#define AUTODEW_FORCE_TEMPERATURE 10
+#define AUTODEW_FORCE_TEMPERATURE 7.2
 
 // DC jacks
 #define DC1 9
@@ -110,7 +110,16 @@ const uint32_t FLASH_TARGET_OFFSET = (6 * 256 * 1024); // choosing to start at 6
 #define SHT3X2_ADDRESS SHT3X_I2C_ADDRESS_B
 #define SHT3X3_I2C i2c1
 #define SHT3X3_ADDRESS SHT3X_I2C_ADDRESS_A
-#define HUMIDITY_THRESHOLD 15
+#define HUMIDITY_THRESHOLD 0
+
+// BMI160 gyroscope and accelerometer
+#define BMI160_ENABLED
+#define BMI160_1_I2C i2c0
+#define BMI160_1_ADDRESS BMI160_I2C_ADDRESS_B
+#define BMI160_2_I2C i2c0
+#define BMI160_2_ADDRESS BMI160_I2C_ADDRESS_A
+#define BMI160_3_I2C i2c1
+#define BMI160_3_ADDRESS BMI160_I2C_ADDRESS_B
 
 struct State {
     uint16_t dew1 = 0;
