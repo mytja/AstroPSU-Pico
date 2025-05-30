@@ -304,16 +304,20 @@ pair<double, double> get_dew_point() {
 }
 
 void autodew() {
-    pair<double, double> d = get_dew_point();
+    pair<double, double> d = {-1000.0, -1};
+    for(int i = 0; i < 3; i++) {
+        // Retries
+        d = get_dew_point();
+        if(d.first != -1000.0) break;
+    }
     double dp = d.first;
     double temp = d.second;
+    if(dp == -1000.0) return;
 
 #ifdef AUTODEW_FORCE_TEMPERATURE
     temp = AUTODEW_FORCE_TEMPERATURE;
     //dp = 5.0;
 #endif
-
-    if(dp == -1000.0) return;
 
     float surface_temp = temp - 0.2; // Adjust offset based on testing
     float margin = 0.8; // Prevents oscillations (adjust as needed)
@@ -371,7 +375,11 @@ bool autodew_timer_callback(__unused struct repeating_timer *t) {
     watchdog_update();
 #endif
 
-    int gyro = refresh_gyro_data();
+    int gyro = -1;
+    for(int i = 0; i < 3; i++) {
+        gyro = refresh_gyro_data();
+        if(gyro != -1) break;
+    }
     if(gyro != -1) {
         bmi160_calculate_absolute_angle(gyro == 0 ? &bmi160_1 : (gyro == 1 ? &bmi160_2 : &bmi160_3), angles);
     } else {
@@ -794,23 +802,23 @@ int main() {
             }
             float adc = adc_read_value(commands[1]);
             if(commands[1] == "DEW1_CURRENT")
-                adc = ((adc - (float)state.dew1_zero) * ADS1115_BIT_TO_MV) / DEW1_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW1_CURRENT_RESOLUTION;
             if(commands[1] == "DEW2_CURRENT")
-                adc = ((adc - (float)state.dew2_zero) * ADS1115_BIT_TO_MV) / DEW2_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW2_CURRENT_RESOLUTION;
             if(commands[1] == "DEW3_CURRENT")
-                adc = ((adc - (float)state.dew3_zero) * ADS1115_BIT_TO_MV) / DEW3_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dew3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW3_CURRENT_RESOLUTION;
             if(commands[1] == "DC1_CURRENT")
-                adc = ((adc - (float)state.dc1_zero) * ADS1115_BIT_TO_MV) / DC1_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC1_CURRENT_RESOLUTION;
             if(commands[1] == "DC2_CURRENT")
-                adc = ((adc - (float)state.dc2_zero) * ADS1115_BIT_TO_MV) / DC2_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC2_CURRENT_RESOLUTION;
             if(commands[1] == "DC3_CURRENT")
-                adc = ((adc - (float)state.dc3_zero) * ADS1115_BIT_TO_MV) / DC3_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC3_CURRENT_RESOLUTION;
             if(commands[1] == "DC4_CURRENT")
-                adc = ((adc - (float)state.dc4_zero) * ADS1115_BIT_TO_MV) / DC4_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc4_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC4_CURRENT_RESOLUTION;
             if(commands[1] == "DC5_CURRENT")
-                adc = ((adc - (float)state.dc5_zero) * ADS1115_BIT_TO_MV) / DC5_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.dc5_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC5_CURRENT_RESOLUTION;
             if(commands[1] == "INPUT_CURRENT")
-                adc = ((adc - (float)state.input_zero) * ADS1115_BIT_TO_MV) / INPUT_CURRENT_RESOLUTION;
+                adc = ((adc - (float)state.input_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / INPUT_CURRENT_RESOLUTION + INPUT_BASE_CURRENT;
             if(commands[1] == "EXT1_ANALOG_TEMP")
                 adc = temperature_calc_ntc(adc);
             if(commands[1] == "EXT2_ANALOG_TEMP")
