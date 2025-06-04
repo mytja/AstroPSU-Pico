@@ -52,7 +52,8 @@ pico_enable_stdio_usb(AstroPSU-Pico 1)
 
 # Add the standard library to the build
 target_link_libraries(AstroPSU-Pico
-        pico_stdlib)
+        pico_stdlib
+        pico_multicore)
 
 # Add the standard include files to the build
 target_include_directories(AstroPSU-Pico PRIVATE
@@ -74,4 +75,6 @@ target_link_libraries(AstroPSU-Pico
 )
 
 pico_add_extra_outputs(AstroPSU-Pico)
+
+set_property(TARGET AstroPSU-Pico APPEND_STRING PROPERTY LINK_FLAGS "-Wl,--print-memory-usage")
 
