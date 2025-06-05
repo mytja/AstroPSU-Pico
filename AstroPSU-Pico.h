@@ -5,6 +5,7 @@
 
 //#define DEBUG_WAIT_FOR_USB
 const bool DEBUG_INIT_MESSAGES = false;
+//#define DEBUG_GPS
 
 // DO NOT REMOVE THIS TOGGLE - IF THIS SHIT ISN'T TURNED ON, IT FOR SOME DUMBFUCK REASON
 // CRASHES main(). DO NOT TURN THIS OFF!!!!!!!!!!!!!!
@@ -73,7 +74,7 @@ const uint32_t FLASH_TARGET_OFFSET = (6 * 256 * 1024); // choosing to start at 6
 // is not quite spot on, so we account for the usually higher voltage
 // Base voltage on the ACS712 is half the VCC.
 #define ACS712_CALIBRATE
-#define ACS712_REPEATED_READS 50
+#define ACS712_REPEATED_READS 30
 #define ACS712_OFFSET 1688
 #define ACS712_30A_RESOLUTION 66.7
 #define ACS712_5A_RESOLUTION 185.0
@@ -142,12 +143,4 @@ struct State {
     uint16_t dc4_zero = 0;
     uint16_t dc5_zero = 0;
     uint16_t input_zero = 0;
-    /*char dew1_name[64] = {'\0'};
-    char dew2_name[64] = {'\0'};
-    char dew3_name[64] = {'\0'};
-    char dc1_name[64] = {'\0'};
-    char dc2_name[64] = {'\0'};
-    char dc3_name[64] = {'\0'};
-    char dc4_name[64] = {'\0'};
-    char dc5_name[64] = {'\0'};*/
 };

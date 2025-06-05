@@ -82,29 +82,32 @@ void read_data() {
     memcpy(&state, flash_target_contents, sizeof(state));
 }
 
-std::vector<std::string> split(const std::string& str, const std::string& delimiter) {
-    std::vector<std::string> tokens;
+string commands[10];
+int split(const string& str, const string& delimiter) {
     if(str.empty()) {
-        return tokens;
+        return 0;
     }
 
     size_t start = 0;
     size_t end = 0;
 
+    int i = 0;
     while((end = str.find(delimiter, start)) != std::string::npos) {
         // Only add non-empty segments
         if(end > start) {
-            tokens.push_back(str.substr(start, end - start));
+            commands[i] = str.substr(start, end - start);
+            i++;
         }
         start = end + delimiter.length();
     }
 
     // Add the last part if it exists
     if(start < str.length()) {
-        tokens.push_back(str.substr(start));
+        commands[i] = str.substr(start);
+        i++;
     }
 
-    return tokens;
+    return i;
 }
 
 void pwm_setup(int pin) {
@@ -130,21 +133,29 @@ void gpio_setup(int pin) {
 int translate_to_pin(const string &pin) {
     if(pin == "DEW1")
         return DEW1;
-    if(pin == "DEW2")
+    else if(pin == "DEW2")
         return DEW2;
-    if(pin == "DEW3")
+    else if(pin == "DEW3")
         return DEW3;
-    if(pin == "DC1")
+    else if(pin == "DC1")
         return DC1;
-    if(pin == "DC2")
+    else if(pin == "DC2")
         return DC2;
-    if(pin == "DC3")
+    else if(pin == "DC3")
         return DC3;
-    if(pin == "DC4")
+    else if(pin == "DC4")
         return DC4;
-    if(pin == "DC5")
+    else if(pin == "DC5")
         return DC5;
     return -1;
+}
+
+extern char __StackLimit, __bss_end__;
+void check_stack_usage() {
+    char* stack_ptr;
+    asm("mov %0, sp" : "=r"(stack_ptr));
+    int stack_used = &__StackLimit - stack_ptr;
+    cout << "Stack used: " << stack_used << " bytes" << endl;
 }
 
 float temperature_calc_ntc(uint16_t adc) {
@@ -156,27 +167,30 @@ float temperature_calc_ntc(uint16_t adc) {
     return temperature - 273.15;
 }
 
+static uint16_t adc_buffer[100];
 uint16_t adc_read(ads1115_adc &adc, int pin, int repeat) {
     auto mux = ADS1115_MUX_SINGLE_0;
     if(pin == 1)
         mux = ADS1115_MUX_SINGLE_1;
-    if(pin == 2)
+    else if(pin == 2)
         mux = ADS1115_MUX_SINGLE_2;
-    if(pin == 3)
+    else if(pin == 3)
         mux = ADS1115_MUX_SINGLE_3;
     ads1115_set_input_mux(mux, &adc);
     ads1115_write_config(&adc);
 
+    if(repeat > 100) repeat = 100;
+    if(repeat < 1) repeat = 1;
+
     // Mediana
-    vector<uint32_t> adc_values(repeat);
     uint16_t adc_value;
     for(int i = 0; i < repeat; i++) {
         ads1115_read_adc(&adc_value, &adc);
-        adc_values[i] = adc_value;
+        adc_buffer[i] = adc_value;
     }
-    sort(adc_values.begin(), adc_values.end());
+    sort(adc_buffer, adc_buffer + repeat);
 
-    adc_value = adc_values[(repeat - 1) / 2];
+    adc_value = adc_buffer[(repeat - 1) / 2];
     return adc_value;
 }
 
@@ -185,29 +199,29 @@ uint16_t adc_read(ads1115_adc &adc, int pin, int repeat) {
 uint16_t adc_read_value(const string &device) {
     if(device == "DEW3_CURRENT")
         return adc_read(adc1, 0, ACS712_REPEATED_READS);
-    if(device == "DEW2_CURRENT")
+    else if(device == "DEW2_CURRENT")
         return adc_read(adc1, 1, ACS712_REPEATED_READS);
-    if(device == "DEW1_CURRENT")
+    else if(device == "DEW1_CURRENT")
         return adc_read(adc1, 2, ACS712_REPEATED_READS);
-    if(device == "DC1_CURRENT")
+    else if(device == "DC1_CURRENT")
         return adc_read(adc1, 3, ACS712_REPEATED_READS);
-    if(device == "DC2_CURRENT")
+    else if(device == "DC2_CURRENT")
         return adc_read(adc2, 0, ACS712_REPEATED_READS);
-    if(device == "DC3_CURRENT")
+    else if(device == "DC3_CURRENT")
         return adc_read(adc2, 1, ACS712_REPEATED_READS);
-    if(device == "DC4_CURRENT")
+    else if(device == "DC4_CURRENT")
         return adc_read(adc2, 2, ACS712_REPEATED_READS);
-    if(device == "DC5_CURRENT")
+    else if(device == "DC5_CURRENT")
         return adc_read(adc2, 3, ACS712_REPEATED_READS);
-    if(device == "INPUT_CURRENT")
+    else if(device == "INPUT_CURRENT")
         return adc_read(adc3, 0, ACS712_REPEATED_READS);
-    if(device == "EXT1_ANALOG_TEMP")
+    else if(device == "EXT1_ANALOG_TEMP")
         return adc_read(adc3, 1, 20);
-    if(device == "EXT2_ANALOG_TEMP")
+    else if(device == "EXT2_ANALOG_TEMP")
         return adc_read(adc3, 2, 20);
-    if(device == "EXT3_ANALOG_TEMP")
+    else if(device == "EXT3_ANALOG_TEMP")
         return adc_read(adc3, 3, 20);
-    if(device == "INPUT_VOLTAGE") {
+    else if(device == "INPUT_VOLTAGE") {
         // TODO: repeated reads
         adc_select_input(2);
         return adc_read();
@@ -269,8 +283,22 @@ void gps0_callback() {
         ch = uart_getc(UART_ID);
         //cout << ch;
         gps0_rx += ch;
+
+#ifdef WATCHDOG_ENABLED
+#ifdef WATCHDOG_DEBUG
+        cout << "Watchdog updated!" << endl;
+#endif
+        watchdog_update();
+#endif
+
+        if(gps0_rx.length() > 1000) { // Prevent runaway growth
+            gps0_rx.clear();
+        }
+
         if(ch == '\n') {
+#ifdef DEBUG_GPS
             cout << gps0_rx << flush;
+#endif
             //cout << flush;
             try {
                 nmea::sentence nmea_sentence(gps0_rx);
@@ -284,7 +312,7 @@ void gps0_callback() {
             } catch(exception& e) {
                 cout << "Exception received in GPS with " << gps0_rx << " - exception: " << e.what() << endl;
             }
-            gps0_rx = "";
+            gps0_rx.clear();
         }
     }
 }
@@ -389,18 +417,6 @@ float angles[] = {0, 0};
 bool autodew_timer_callback(__unused struct repeating_timer *t) {
     //cout << "Autodew from core " << get_core_num() << endl;
 
-    int gyro = -1;
-    for(int i = 0; i < 3; i++) {
-        gyro = refresh_gyro_data();
-        if(gyro != -1) break;
-    }
-    if(gyro != -1) {
-        bmi160_calculate_absolute_angle(gyro == 0 ? &bmi160_1 : (gyro == 1 ? &bmi160_2 : &bmi160_3), angles);
-    } else {
-        angles[0] = 0;
-        angles[1] = 0;
-    }
-
     if(!state.autodew) return true;
 
     sht3x_read_data(&sht3x1);
@@ -495,6 +511,29 @@ float adc_get(string c) {
     return adc;
 }
 
+const int ADCS_SIZE = 20;
+static const string adcs[ADCS_SIZE] = {
+    "DEW1_CURRENT",
+    "DEW2_CURRENT",
+    "DEW3_CURRENT",
+    "DC1_CURRENT",
+    "DC2_CURRENT",
+    "DC3_CURRENT",
+    "DC4_CURRENT",
+    "DC5_CURRENT",
+    "INPUT_CURRENT",
+    "EXT1_ANALOG_TEMP",
+    "EXT2_ANALOG_TEMP",
+    "EXT3_ANALOG_TEMP",
+    "DEW_POINT",
+    "SHT3X1_TEMP",
+    "SHT3X2_TEMP",
+    "SHT3X3_TEMP",
+    "SHT3X1_HUM",
+    "SHT3X2_HUM",
+    "SHT3X3_HUM",
+    "INPUT_VOLTAGE",
+};
 
 struct Data {
     State* state;
@@ -552,37 +591,33 @@ void core1_entry() {
     //gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
 #endif
 
-    int ADCS_SIZE = 20;
-    string adcs[ADCS_SIZE] = {
-        "DEW1_CURRENT",
-        "DEW2_CURRENT",
-        "DEW3_CURRENT",
-        "DC1_CURRENT",
-        "DC2_CURRENT",
-        "DC3_CURRENT",
-        "DC4_CURRENT",
-        "DC5_CURRENT",
-        "INPUT_CURRENT",
-        "EXT1_ANALOG_TEMP",
-        "EXT2_ANALOG_TEMP",
-        "EXT3_ANALOG_TEMP",
-        "DEW_POINT",
-        "SHT3X1_TEMP",
-        "SHT3X2_TEMP",
-        "SHT3X3_TEMP",
-        "SHT3X1_HUM",
-        "SHT3X2_HUM",
-        "SHT3X3_HUM",
-        "INPUT_VOLTAGE",
-    };
     while(true) {
+        //check_stack_usage();
+        int gyro = -1;
+        for(int i = 0; i < 3; i++) {
+#ifdef WATCHDOG_ENABLED
+#ifdef WATCHDOG_DEBUG
+            cout << "Watchdog updated!" << endl;
+#endif
+            watchdog_update();
+#endif
+            gyro = refresh_gyro_data();
+            if(gyro != -1) break;
+        }
+        if(gyro != -1) {
+            bmi160_calculate_absolute_angle(gyro == 0 ? &bmi160_1 : (gyro == 1 ? &bmi160_2 : &bmi160_3), angles);
+        } else {
+            angles[0] = 0;
+            angles[1] = 0;
+        }
+        mcld->gyro_x = angles[0];
+        mcld->gyro_y = angles[1];
+
         for(int i = 0; i < ADCS_SIZE; i++) {
             mcld->gps1_lat = lat;
             mcld->gps1_lng = lng;
             mcld->gps1_elevation = elevation;
             mcld->gps1_satellite_count = satelliteNum;
-            mcld->gyro_x = angles[0];
-            mcld->gyro_y = angles[1];
 
 #ifdef WATCHDOG_ENABLED
 #ifdef WATCHDOG_DEBUG
@@ -596,38 +631,38 @@ void core1_entry() {
 
             if(c == "DEW1_CURRENT")
                 mcld->dew1_current = adc;
-            if(c == "DEW2_CURRENT")
+            else if(c == "DEW2_CURRENT")
                 mcld->dew2_current = adc;
-            if(c == "DEW3_CURRENT")
+            else if(c == "DEW3_CURRENT")
                 mcld->dew3_current = adc;
-            if(c == "DC1_CURRENT")
+            else if(c == "DC1_CURRENT")
                 mcld->dc1_current = adc;
-            if(c == "DC2_CURRENT")
+            else if(c == "DC2_CURRENT")
                 mcld->dc2_current = adc;
-            if(c == "DC3_CURRENT")
+            else if(c == "DC3_CURRENT")
                 mcld->dc3_current = adc;
-            if(c == "DC4_CURRENT")
+            else if(c == "DC4_CURRENT")
                 mcld->dc4_current = adc;
-            if(c == "DC5_CURRENT")
+            else if(c == "DC5_CURRENT")
                 mcld->dc5_current = adc;
-            if(c == "INPUT_CURRENT")
+            else if(c == "INPUT_CURRENT")
                 mcld->input_current = adc;
-            if(c == "EXT1_ANALOG_TEMP")
+            else if(c == "EXT1_ANALOG_TEMP")
                 mcld->ext1_analog_temp = adc;
-            if(c == "EXT2_ANALOG_TEMP")
+            else if(c == "EXT2_ANALOG_TEMP")
                 mcld->ext2_analog_temp = adc;
-            if(c == "EXT3_ANALOG_TEMP")
+            else if(c == "EXT3_ANALOG_TEMP")
                 mcld->ext3_analog_temp = adc;
-            if(c == "DEW_POINT")
+            else if(c == "DEW_POINT")
                 mcld->dew_point = adc;
-            if(c == "SHT3X1_TEMP")
+            else if(c == "SHT3X1_TEMP")
                 mcld->sht1_temp = adc;
-            if(c == "SHT3X2_TEMP") mcld->sht2_temp = adc;
-            if(c == "SHT3X3_TEMP") mcld->sht3_temp = adc;
-            if(c == "SHT3X1_HUM") mcld->sht1_hum = adc;
-            if(c == "SHT3X2_HUM") mcld->sht2_hum = adc;
-            if(c == "SHT3X3_HUM") mcld->sht3_hum = adc;
-            if(c == "INPUT_VOLTAGE") mcld->input_voltage = adc;
+            else if(c == "SHT3X2_TEMP") mcld->sht2_temp = adc;
+            else if(c == "SHT3X3_TEMP") mcld->sht3_temp = adc;
+            else if(c == "SHT3X1_HUM") mcld->sht1_hum = adc;
+            else if(c == "SHT3X2_HUM") mcld->sht2_hum = adc;
+            else if(c == "SHT3X3_HUM") mcld->sht3_hum = adc;
+            else if(c == "INPUT_VOLTAGE") mcld->input_voltage = adc;
         }
         sleep_ms(50);
     }
@@ -804,291 +839,254 @@ int main() {
     multicore_launch_core1(core1_entry);
     multicore_fifo_push_blocking((uint32_t)&mcd);
 
+    string c;
+    int commandsLength = 0;
     while(true) {
-        string c;
-        getline(cin, c);
-        string original = c;
-        vector<string> commands = split(c, ";");
-        if(commands.size() == 0) {
-            cout << "INVALID_COMMAND" << endl;
-            continue;
+        tud_task();
+        watchdog_update();
+
+        int c_char = getchar_timeout_us(0); // 0 timeout = non-blocking
+
+        if(c_char != PICO_ERROR_TIMEOUT) {
+            if(c_char == '\n' || c_char == '\r') {
+                if(!c.empty()) {
+                    commandsLength = split(c, ";");
+                    c.clear();
+                    if(commandsLength == 0) {
+                        cout << "INVALID_COMMAND" << endl;
+                        continue;
+                    }
+
+                    if(commands[0] == "FWINFO") {
+                        cout << "AstroPSU-Pico v0.0.1-beta " << __DATE__ << " " << __TIME__ << endl;
+                    } else if(commands[0] == "PWMSET") {
+                        if(commandsLength != 3) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        int num = stoi(commands[2]);
+                        if(num < 0 || num > 65535) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        int pin = translate_to_pin(commands[1]);
+                        if(pin == -1) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+                        if(pin == DEW1)
+                            state.dew1 = num;
+                        if(pin == DEW2)
+                            state.dew2 = num;
+                        if(pin == DEW3)
+                            state.dew3 = num;
+                        state.autodew = false;
+                        pwm_set_gpio_level(pin, num);
+#ifdef SAVE_ENABLED
+                        save_data();
+#endif
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "OFF") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
+                            int pin = translate_to_pin(commands[1]);
+                            if(pin == -1) {
+                                cout << "INVALID_COMMAND_ARGS" << endl;
+                                continue;
+                            }
+                            if(pin == DC1)
+                                state.dc1 = false;
+                            else if(pin == DC2)
+                                state.dc2 = false;
+                            else if(pin == DC3)
+                                state.dc3 = false;
+                            else if(pin == DC4)
+                                state.dc4 = false;
+                            else if(pin == DC5)
+                                state.dc5 = false;
+                            gpio_put(pin, false);
+                        } else {
+                            if(commands[1] == "AUTODEW")
+                                state.autodew = false;
+                            if(commands[1] == "GPS1") {
+                                state.gps_sleep = false;
+                                gpio_put(GPS0_ENABLE, true);
+                            }
+                        }
+#ifdef SAVE_ENABLED
+                        save_data();
+#endif
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "ON") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
+                            int pin = translate_to_pin(commands[1]);
+                            if(pin == -1) {
+                                cout << "INVALID_COMMAND_ARGS" << endl;
+                                continue;
+                            }
+                            if(pin == DC1)
+                                state.dc1 = true;
+                            else if(pin == DC2)
+                                state.dc2 = true;
+                            else if(pin == DC3)
+                                state.dc3 = true;
+                            else if(pin == DC4)
+                                state.dc4 = true;
+                            else if(pin == DC5)
+                                state.dc5 = true;
+                            gpio_put(pin, true);
+                        } else {
+                            if(commands[1] == "AUTODEW")
+                                state.autodew = true;
+                            else if(commands[1] == "GPS1") {
+                                gpio_put(GPS0_ENABLE, false);
+                                state.gps_sleep = true;
+                            }
+                        }
+#ifdef SAVE_ENABLED
+                        save_data();
+#endif
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "PWMGET") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        if(commands[1] == "DEW1")
+                            cout << state.dew1 << endl;
+                        else if(commands[1] == "DEW2")
+                            cout << state.dew2 << endl;
+                        else if(commands[1] == "DEW3")
+                            cout << state.dew3 << endl;
+                        else
+                            cout << 0 << endl;
+                    } else if(commands[0] == "FLUSH") {
+#ifdef SAVE_ENABLED
+                        save_data();
+#endif
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "STATEGET") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+
+                        if(commands[1] == "DC1")
+                            cout << state.dc1 << endl;
+                        else if(commands[1] == "DC2")
+                            cout << state.dc2 << endl;
+                        else if(commands[1] == "DC3")
+                            cout << state.dc3 << endl;
+                        else if(commands[1] == "DC4")
+                            cout << state.dc4 << endl;
+                        else if(commands[1] == "DC5")
+                            cout << state.dc5 << endl;
+                        else if(commands[1] == "AUTODEW")
+                            cout << state.autodew << endl;
+                        else
+                            cout << false << endl;
+                    } else if(commands[0] == "ADCGET") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+                        float adc = 0.0;
+                        if(commands[1] == "DEW1_CURRENT")
+                            adc = mcd.dew1_current;
+                        else if(commands[1] == "DEW2_CURRENT")
+                            adc = mcd.dew2_current;
+                        else if(commands[1] == "DEW3_CURRENT")
+                            adc = mcd.dew3_current;
+                        else if(commands[1] == "DC1_CURRENT")
+                            adc = mcd.dc1_current;
+                        else if(commands[1] == "DC2_CURRENT")
+                            adc = mcd.dc2_current;
+                        else if(commands[1] == "DC3_CURRENT")
+                            adc = mcd.dc3_current;
+                        else if(commands[1] == "DC4_CURRENT")
+                            adc = mcd.dc4_current;
+                        else if(commands[1] == "DC5_CURRENT")
+                            adc = mcd.dc5_current;
+                        else if(commands[1] == "INPUT_CURRENT")
+                            adc = mcd.input_current;
+                        else if(commands[1] == "EXT1_ANALOG_TEMP")
+                            adc = mcd.ext1_analog_temp;
+                        else if(commands[1] == "EXT2_ANALOG_TEMP")
+                            adc = mcd.ext2_analog_temp;
+                        else if(commands[1] == "EXT3_ANALOG_TEMP")
+                            adc = mcd.ext3_analog_temp;
+                        else if(commands[1] == "DEW_POINT")
+                            adc = mcd.dew_point;
+                        else if(commands[1] == "SHT3X1_TEMP") adc = mcd.sht1_temp;
+                        else if(commands[1] == "SHT3X2_TEMP") adc = mcd.sht2_temp;
+                        else if(commands[1] == "SHT3X3_TEMP") adc = mcd.sht3_temp;
+                        else if(commands[1] == "SHT3X1_HUM") adc = mcd.sht1_hum;
+                        else if(commands[1] == "SHT3X2_HUM") adc = mcd.sht2_hum;
+                        else if(commands[1] == "SHT3X3_HUM") adc = mcd.sht3_hum;
+                        else if(commands[1] == "INPUT_VOLTAGE") adc = mcd.input_voltage;
+                        else if(commands[1] == "GPS1_LATITUDE") {
+                            cout << mcd.gps1_lat << endl;
+                            continue;
+                        } else if(commands[1] == "GPS1_LONGITUDE") {
+                            cout << mcd.gps1_lng << endl;
+                            continue;
+                        } else if(commands[1] == "GPS1_ELEVATION") {
+                            cout << mcd.gps1_elevation << endl;
+                            continue;
+                        } else if(commands[1] == "GPS1_SATELLITE_COUNT") {
+                            cout << mcd.gps1_satellite_count << endl;
+                            continue;
+                        } else if(commands[1] == "DEW1") adc = (state.dew1 * 100.0f) / 65535.0f;
+                        else if(commands[1] == "DEW2") adc = (state.dew2 * 100.0f) / 65535.0f;
+                        else if(commands[1] == "DEW3") adc = (state.dew3 * 100.0f) / 65535.0f;
+                        else if(commands[1] == "GYRO_X") adc = mcd.gyro_x;
+                        else if(commands[1] == "GYRO_Y") adc = mcd.gyro_y;
+                        adc = round(adc * 100.0) / 100.0;
+                        cout << adc << endl;
+                    } else if(commands[0] == "RAWADCGET") {
+                        if(commandsLength != 2) {
+                            cout << "INVALID_COMMAND_ARGS" << endl;
+                            continue;
+                        }
+                        cout << adc_read_value(commands[1]) << endl;
+                    } else if(commands[0] == "RESET") {
+                        cout << "OK_BYE" << endl;
+                        watchdog_reboot(0, 0, 0);
+                    } else if(commands[0] == "I2CDEBUG") {
+                        i2c_debug(true);
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "REFRESH_DATA") {
+                        refresh_gyro_data();
+                        cout << "OK" << endl;
+                    } else if(commands[0] == "CALIBRATE") {
+                        calibrate();
+                        cout << "OK" << endl;
+                    } else {
+                        cout << "UNDEFINED_COMMAND" << endl;
+                    }
+                }
+            } else {
+                c += (char)c_char;
+                // Optional: Add a safety limit for line length
+                if(c.length() > 256) {
+                    cout << "COMMAND_LINE_TOO_LONG" << endl;
+                    c.clear();
+                }
+            }
         }
 
-        if(commands[0] == "FWINFO") {
-            cout << "AstroPSU-Pico v0.0.1-beta " << __DATE__ << " " << __TIME__ << endl;
-        } else if(commands[0] == "PWMSET") {
-            if(commands.size() != 3) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            int num = stoi(commands[2]);
-            if(num < 0 || num > 65535) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            int pin = translate_to_pin(commands[1]);
-            if(pin == -1) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-            if(pin == DEW1)
-                state.dew1 = num;
-            if(pin == DEW2)
-                state.dew2 = num;
-            if(pin == DEW3)
-                state.dew3 = num;
-            state.autodew = false;
-            pwm_set_gpio_level(pin, num);
-#ifdef SAVE_ENABLED
-            save_data();
-#endif
-            cout << "OK" << endl;
-        } else if(commands[0] == "OFF") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
-                int pin = translate_to_pin(commands[1]);
-                if(pin == -1) {
-                    cout << "INVALID_COMMAND_ARGS" << endl;
-                    continue;
-                }
-                if(pin == DC1)
-                    state.dc1 = false;
-                if(pin == DC2)
-                    state.dc2 = false;
-                if(pin == DC3)
-                    state.dc3 = false;
-                if(pin == DC4)
-                    state.dc4 = false;
-                if(pin == DC5)
-                    state.dc5 = false;
-                gpio_put(pin, false);
-            } else {
-                if(commands[1] == "AUTODEW")
-                    state.autodew = false;
-                if(commands[1] == "GPS1") {
-                    state.gps_sleep = false;
-                    gpio_put(GPS0_ENABLE, true);
-                }
-            }
-#ifdef SAVE_ENABLED
-            save_data();
-#endif
-            cout << "OK" << endl;
-        } else if(commands[0] == "ON") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
-                int pin = translate_to_pin(commands[1]);
-                if(pin == -1) {
-                    cout << "INVALID_COMMAND_ARGS" << endl;
-                    continue;
-                }
-                if(pin == DC1)
-                    state.dc1 = true;
-                if(pin == DC2)
-                    state.dc2 = true;
-                if(pin == DC3)
-                    state.dc3 = true;
-                if(pin == DC4)
-                    state.dc4 = true;
-                if(pin == DC5)
-                    state.dc5 = true;
-                gpio_put(pin, true);
-            } else {
-                if(commands[1] == "AUTODEW")
-                    state.autodew = true;
-                if(commands[1] == "GPS1") {
-                    gpio_put(GPS0_ENABLE, false);
-                    state.gps_sleep = true;
-                }
-            }
-#ifdef SAVE_ENABLED
-            save_data();
-#endif
-            cout << "OK" << endl;
-        } else if(commands[0] == "PWMGET") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            if(commands[1] == "DEW1")
-                cout << state.dew1 << endl;
-            else if(commands[1] == "DEW2")
-                cout << state.dew2 << endl;
-            else if(commands[1] == "DEW3")
-                cout << state.dew3 << endl;
-            else
-                cout << 0 << endl;
-        } /*else if(commands[0] == "NAMEGET") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            if(commands[1] == "DC1")
-                cout << state.dc1_name << endl;
-            else if(commands[1] == "DC2")
-                cout << state.dc2_name << endl;
-            else if(commands[1] == "DC3")
-                cout << state.dc3_name << endl;
-            else if(commands[1] == "DC4")
-                cout << state.dc4_name << endl;
-            else if(commands[1] == "DC5")
-                cout << state.dc5_name << endl;
-            else if(commands[1] == "DEW1")
-                cout << state.dew1_name << endl;
-            else if(commands[1] == "DEW2")
-                cout << state.dew2_name << endl;
-            else if(commands[1] == "DEW3")
-                cout << state.dew3_name << endl;
-            else
-                cout << "Unknown Switch" << endl;
-        } else if(commands[0] == "NAMESET") {
-            if(commands.size() != 3) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            // TODO: boundary check
-            string name = commands[2];
-
-            if(commands[1] == "DC1")
-                strncpy(state.dc1_name, name.c_str(), sizeof(state.dc1_name));
-            else if(commands[1] == "DC2")
-                strncpy(state.dc2_name, name.c_str(), sizeof(state.dc2_name));
-            else if(commands[1] == "DC3")
-                strncpy(state.dc3_name, name.c_str(), sizeof(state.dc3_name));
-            else if(commands[1] == "DC4")
-                strncpy(state.dc4_name, name.c_str(), sizeof(state.dc4_name));
-            else if(commands[1] == "DC5")
-                strncpy(state.dc5_name, name.c_str(), sizeof(state.dc5_name));
-            else if(commands[1] == "DEW1")
-                strncpy(state.dew1_name, name.c_str(), sizeof(state.dew1_name));
-            else if(commands[1] == "DEW2")
-                strncpy(state.dew2_name, name.c_str(), sizeof(state.dew2_name));
-            else if(commands[1] == "DEW3")
-                strncpy(state.dew3_name, name.c_str(), sizeof(state.dew3_name));
-#ifdef SAVE_ENABLED
-            save_data();
-#endif
-            cout << "OK" << endl;
-        } */else if(commands[0] == "FLUSH") {
-#ifdef SAVE_ENABLED
-            save_data();
-#endif
-            cout << "OK" << endl;
-        } else if(commands[0] == "STATEGET") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-
-            if(commands[1] == "DC1")
-                cout << state.dc1 << endl;
-            else if(commands[1] == "DC2")
-                cout << state.dc2 << endl;
-            else if(commands[1] == "DC3")
-                cout << state.dc3 << endl;
-            else if(commands[1] == "DC4")
-                cout << state.dc4 << endl;
-            else if(commands[1] == "DC5")
-                cout << state.dc5 << endl;
-            else if(commands[1] == "AUTODEW")
-                cout << state.autodew << endl;
-            else
-                cout << false << endl;
-        } else if(commands[0] == "ADCGET") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-            float adc = 0.0;
-            if(commands[1] == "DEW1_CURRENT")
-                adc = mcd.dew1_current;
-            if(commands[1] == "DEW2_CURRENT")
-                adc = mcd.dew2_current;
-            if(commands[1] == "DEW3_CURRENT")
-                adc = mcd.dew3_current;
-            if(commands[1] == "DC1_CURRENT")
-                adc = mcd.dc1_current;
-            if(commands[1] == "DC2_CURRENT")
-                adc = mcd.dc2_current;
-            if(commands[1] == "DC3_CURRENT")
-                adc = mcd.dc3_current;
-            if(commands[1] == "DC4_CURRENT")
-                adc = mcd.dc4_current;
-            if(commands[1] == "DC5_CURRENT")
-                adc = mcd.dc5_current;
-            if(commands[1] == "INPUT_CURRENT")
-                adc = mcd.input_current;
-            if(commands[1] == "EXT1_ANALOG_TEMP")
-                adc = mcd.ext1_analog_temp;
-            if(commands[1] == "EXT2_ANALOG_TEMP")
-                adc = mcd.ext2_analog_temp;
-            if(commands[1] == "EXT3_ANALOG_TEMP")
-                adc = mcd.ext3_analog_temp;
-            if(commands[1] == "DEW_POINT")
-                adc = mcd.dew_point;
-            if(commands[1] == "SHT3X1_TEMP") adc = mcd.sht1_temp;
-            if(commands[1] == "SHT3X2_TEMP") adc = mcd.sht2_temp;
-            if(commands[1] == "SHT3X3_TEMP") adc = mcd.sht3_temp;
-            if(commands[1] == "SHT3X1_HUM") adc = mcd.sht1_hum;
-            if(commands[1] == "SHT3X2_HUM") adc = mcd.sht2_hum;
-            if(commands[1] == "SHT3X3_HUM") adc = mcd.sht3_hum;
-            if(commands[1] == "INPUT_VOLTAGE") adc = mcd.input_voltage;
-            if(commands[1] == "GPS1_LATITUDE") {
-                cout << mcd.gps1_lat << endl;
-                continue;
-            }
-            if(commands[1] == "GPS1_LONGITUDE") {
-                cout << mcd.gps1_lng << endl;
-                continue;
-            }
-            if(commands[1] == "GPS1_ELEVATION") {
-                cout << mcd.gps1_elevation << endl;
-                continue;
-            }
-            if(commands[1] == "GPS1_SATELLITE_COUNT") {
-                cout << mcd.gps1_satellite_count << endl;
-                continue;
-            }
-            if(commands[1] == "DEW1") adc = (state.dew1 * 100.0f) / 65535.0f;
-            if(commands[1] == "DEW2") adc = (state.dew2 * 100.0f) / 65535.0f;
-            if(commands[1] == "DEW3") adc = (state.dew3 * 100.0f) / 65535.0f;
-            if(commands[1] == "GYRO_X") adc = mcd.gyro_x;
-            if(commands[1] == "GYRO_Y") adc = mcd.gyro_y;
-            adc = round(adc * 100.0) / 100.0;
-            cout << adc << endl;
-        } else if(commands[0] == "RAWADCGET") {
-            if(commands.size() != 2) {
-                cout << "INVALID_COMMAND_ARGS" << endl;
-                continue;
-            }
-            cout << adc_read_value(commands[1]) << endl;
-        } else if(commands[0] == "RESET") {
-            cout << "OK_BYE" << endl;
-            watchdog_reboot(0, 0, 0);
-        } else if(commands[0] == "I2CDEBUG") {
-            i2c_debug(true);
-            cout << "OK" << endl;
-        } else if(commands[0] == "REFRESH_DATA") {
-            refresh_gyro_data();
-            cout << "OK" << endl;
-        } else if(commands[0] == "CALIBRATE") {
-            calibrate();
-            cout << "OK" << endl;
-        } else {
-            cout << "UNDEFINED_COMMAND" << endl;
-        }
+        sleep_ms(1);
     }
 }

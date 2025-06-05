@@ -12,21 +12,23 @@
 
 #include "bmi160.h"
 
+const uint TIMEOUT_US = 30000;
+
 void bmi160_write_byte(bmi160_t* bmi160, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = {reg, value};
-    i2c_write_timeout_per_char_us(bmi160->i2c_port, bmi160->i2c_addr, buf, 2, false, 1000000);
+    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, 2, false, TIMEOUT_US);
 }
 
 uint8_t bmi160_read_byte(bmi160_t* bmi160, uint8_t reg) {
     uint8_t value;
-    i2c_write_timeout_per_char_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, 1000000);
-    i2c_read_timeout_per_char_us(bmi160->i2c_port, bmi160->i2c_addr, &value, 1, false, 1000000);
+    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
+    i2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &value, 1, false, TIMEOUT_US);
     return value;
 }
 
 void bmi160_read_bytes(bmi160_t* bmi160, uint8_t reg, uint8_t *buf, uint8_t len) {
-    i2c_write_timeout_per_char_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, 1000000);
-    i2c_read_timeout_per_char_us(bmi160->i2c_port, bmi160->i2c_addr, buf, len, false, 1000000);
+    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
+    i2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, len, false, TIMEOUT_US);
 }
 
 void bmi160_init(i2c_inst_t* i2c_port, uint8_t i2c_addr,
@@ -80,18 +82,19 @@ void bmi160_read_data(bmi160_t* bmi160) {
     //std::cout << "BMI on " << (int)bmi160->i2c_addr << " reporting dst: " << (int)buf[0] << " " << (int)buf[1] << " " << (int)buf[2] << std::endl;
 }
 
+const int repeat = 20;
+int16_t x_gyro[repeat];
+int16_t y_gyro[repeat];
+int16_t z_gyro[repeat];
+int16_t x_accel[repeat];
+int16_t y_accel[repeat];
+int16_t z_accel[repeat];
+
 void bmi160_median(bmi160_t* bmi160) {
 
     //uint8_t pmu_status = bmi160_read_byte(bmi160, BMI160_REG_PMU_STAT);
     //printf("PMU: Gyro=%d Accel=%d\n", (pmu_status >> 2) & 0x3, pmu_status & 0x3);
 
-    const int repeat = 40;
-    std::vector<int16_t> x_gyro(repeat);
-    std::vector<int16_t> y_gyro(repeat);
-    std::vector<int16_t> z_gyro(repeat);
-    std::vector<int16_t> x_accel(repeat);
-    std::vector<int16_t> y_accel(repeat);
-    std::vector<int16_t> z_accel(repeat);
     for(int i = 0; i < repeat; i++) {
         bmi160_read_data(bmi160);
         x_gyro[i] = bmi160->gyro[0];
@@ -102,12 +105,12 @@ void bmi160_median(bmi160_t* bmi160) {
         z_accel[i] = bmi160->accel[2];
     }
     int median = (repeat - 1) / 2;
-    sort(x_gyro.begin(), x_gyro.end());
-    sort(y_gyro.begin(), y_gyro.end());
-    sort(z_gyro.begin(), z_gyro.end());
-    sort(x_accel.begin(), x_accel.end());
-    sort(y_accel.begin(), y_accel.end());
-    sort(z_accel.begin(), z_accel.end());
+    std::sort(x_gyro, x_gyro + repeat);
+    std::sort(y_gyro, y_gyro + repeat);
+    std::sort(z_gyro, z_gyro + repeat);
+    std::sort(x_accel, x_accel + repeat);
+    std::sort(y_accel, y_accel + repeat);
+    std::sort(z_accel, z_accel + repeat);
 
     bmi160->gyro[0] = x_gyro[median];
     bmi160->gyro[1] = y_gyro[median];
