@@ -17,9 +17,6 @@
 #include "sht3x.h"
 #include "bmi160.h"
 
-#include <nmea/sentence.hpp>
-#include <nmea/message/gga.hpp>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -357,7 +354,7 @@ void gps0_callback() {
                         lng = (float)minutes + seconds;
                     } else if(part == 5 && partS == "W") lng *= -1;
                     else if(part == 7 && partS != "") satelliteNum = stoi(partS);
-                    else if(part == 8 && partS != "") elevation = stof(partS);
+                    else if(part == 9 && partS != "") elevation = stof(partS);
                     part++;
                     partS.clear();
                     continue;
