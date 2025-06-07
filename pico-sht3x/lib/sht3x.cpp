@@ -7,7 +7,9 @@
 
 #include "sht3x.h"
 
-const uint16_t MAX_UINT16 = (1 << 16) - 1;
+#include "oldi2c.h"
+
+const uint16_t MAX_UINT16 = 65535U;
 
 // Command to fetch data is (per datasheet):
 // 0x E0 00
@@ -28,13 +30,13 @@ void sht3x_read_data(sht3x_t* sht3x) {
     // Due to this being a crude implementation, we will skip CRC checking.
     // That's generally not recommended in production.
     uint8_t dst[6];
-    int err = i2c_write_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, FETCH_DATA_COMMAND, 2, true, 5000);
+    int err = oldi2c_write_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, FETCH_DATA_COMMAND, 2, true, 5000);
     if(err <= 0) {
         sht3x->temperature = -200;
         sht3x->humidity = -1;
         return;
     }
-    err = i2c_read_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, dst, 6, false, 5000);
+    err = oldi2c_read_timeout_us(sht3x->i2c_port, sht3x->i2c_addr, dst, 6, false, 5000);
     if(err <= 0) {
         sht3x->temperature = -200;
         sht3x->humidity = -1;

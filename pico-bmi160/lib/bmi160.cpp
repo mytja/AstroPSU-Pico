@@ -10,25 +10,27 @@
 #include <iostream>
 #include <cmath>
 
+#include "oldi2c.h"
+
 #include "bmi160.h"
 
 const uint TIMEOUT_US = 30000;
 
 void bmi160_write_byte(bmi160_t* bmi160, uint8_t reg, uint8_t value) {
     uint8_t buf[2] = {reg, value};
-    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, 2, false, TIMEOUT_US);
+    oldi2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, 2, false, TIMEOUT_US);
 }
 
 uint8_t bmi160_read_byte(bmi160_t* bmi160, uint8_t reg) {
     uint8_t value;
-    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
-    i2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &value, 1, false, TIMEOUT_US);
+    oldi2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
+    oldi2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &value, 1, false, TIMEOUT_US);
     return value;
 }
 
 void bmi160_read_bytes(bmi160_t* bmi160, uint8_t reg, uint8_t *buf, uint8_t len) {
-    i2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
-    i2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, len, false, TIMEOUT_US);
+    oldi2c_write_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, &reg, 1, true, TIMEOUT_US);
+    oldi2c_read_timeout_us(bmi160->i2c_port, bmi160->i2c_addr, buf, len, false, TIMEOUT_US);
 }
 
 void bmi160_init(i2c_inst_t* i2c_port, uint8_t i2c_addr,
@@ -40,7 +42,6 @@ void bmi160_init(i2c_inst_t* i2c_port, uint8_t i2c_addr,
 int bmi160_setup(bmi160_t* bmi160) {
     // Check chip ID
     uint8_t chip_id = bmi160_read_byte(bmi160, BMI160_REG_CHIP_ID);
-    //std::cout << (int)chip_id << std::endl;
     if(chip_id != 0xD1) {
         return -1;
     }
@@ -53,7 +54,6 @@ int bmi160_setup(bmi160_t* bmi160) {
     // Switch gyroscope to normal mode
     bmi160_write_byte(bmi160, BMI160_REG_CMD, BMI160_CMD_GYR_NORMAL_MODE);
     bmi160_write_byte(bmi160, BMI160_REG_CMD, BMI160_CMD_ACCEL_NORMAL_MODE);
-    sleep_ms(100);
     return 0;
 }
 

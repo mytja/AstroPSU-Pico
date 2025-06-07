@@ -30,6 +30,7 @@ include(pico_sdk_import.cmake)
 add_subdirectory(./pico-ads1115/lib ads1115)
 add_subdirectory(./pico-sht3x/lib sht3x)
 add_subdirectory(./pico-bmi160/lib bmi160)
+add_subdirectory(./pico-oldi2c/lib oldi2c)
 add_subdirectory(./nmea nmea)
 
 project(AstroPSU-Pico C CXX ASM)
@@ -71,6 +72,7 @@ target_link_libraries(AstroPSU-Pico
         pico-ads1115
         pico-sht3x
         pico-bmi160
+        pico-oldi2c
         nmea
 )
 
