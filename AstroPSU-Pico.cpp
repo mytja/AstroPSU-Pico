@@ -60,22 +60,41 @@ uint32_t millis() {
 }
 
 void save_data() {
+    // Lock/block core 1 from doing literally anything
+    // Necessary for writing to flash
+    multicore_lockout_start_blocking();
+
     // Flush any pending output before starting
-    //cout << "Writing data!" << endl;
+#ifdef DEBUG_FLASH
+    cout << "Writing data!" << endl;
+#endif
 
     uint8_t *myDataAsBytes = (uint8_t *)&state;
     int myDataSize = sizeof(state);
 
-    //cout << "Data size is " << myDataSize << endl;
+#ifdef DEBUG_FLASH
+    cout << "Data size is " << myDataSize << endl;
+#endif
 
     int writeSize = (myDataSize / FLASH_PAGE_SIZE) + 1;
     int sectorCount = ((writeSize * FLASH_PAGE_SIZE) / FLASH_SECTOR_SIZE) + 1;
-    //cout << "Writing size " << writeSize << " with sector count " << sectorCount << endl;
+#ifdef DEBUG_FLASH
+    cout << "Writing size " << writeSize << " with sector count " << sectorCount << endl;
+#endif
 
     uint32_t interrupts = save_and_disable_interrupts();
     flash_range_erase(FLASH_TARGET_OFFSET, FLASH_SECTOR_SIZE * sectorCount);
     flash_range_program(FLASH_TARGET_OFFSET, myDataAsBytes, FLASH_PAGE_SIZE * writeSize);
+#ifdef DEBUG_FLASH
+    cout << "Successfully flashed! Restoring interrupts." << endl;
+#endif
     restore_interrupts(interrupts);
+#ifdef DEBUG_FLASH
+    cout << "Successfully flashed! Done." << endl;
+#endif
+
+    // Unlock core 1
+    multicore_lockout_end_blocking();
 }
 
 void read_data() {
@@ -386,15 +405,9 @@ pair<double, double> get_dew_point() {
     return {dew_point(temp, hum), temp};
 }
 
-void autodew() {
-    pair<double, double> d = {-1000.0, -1};
-    for(int i = 0; i < 3; i++) {
-        // Retries
-        d = get_dew_point();
-        if(d.first != -1000.0) break;
-    }
-    double dp = d.first;
-    double temp = d.second;
+void autodew(Data* mcld) {
+    double dp = mcld->dew_point;
+    double temp = mcld->sht1_temp > -100.0 ? mcld->sht1_temp : (mcld->sht2_temp > 100.0 ? mcld->sht2_temp : mcld->sht3_temp);
     if(dp == -1000.0) return;
 
 #ifdef AUTODEW_FORCE_TEMPERATURE
@@ -410,13 +423,13 @@ void autodew() {
     float Kp = 2.15;
     float pwm_duty = max(0.0f, min(100.0f, Kp * error)) / 100.0f; // Clamp to 0-100%
 
-    state.dew1 = pwm_duty * 65535.0f;
-    state.dew2 = pwm_duty * 65535.0f;
-    state.dew3 = pwm_duty * 65535.0f;
+    mcld->state->dew1 = pwm_duty * 65535.0f;
+    mcld->state->dew2 = pwm_duty * 65535.0f;
+    mcld->state->dew3 = pwm_duty * 65535.0f;
 
-    pwm_set_gpio_level(DEW1, (uint16_t)state.dew1);
-    pwm_set_gpio_level(DEW2, (uint16_t)state.dew2);
-    pwm_set_gpio_level(DEW3, (uint16_t)state.dew3);
+    pwm_set_gpio_level(DEW1, (uint16_t)mcld->state->dew1);
+    pwm_set_gpio_level(DEW2, (uint16_t)mcld->state->dew2);
+    pwm_set_gpio_level(DEW3, (uint16_t)mcld->state->dew3);
 }
 
 int refresh_gyro_data() {
@@ -446,17 +459,6 @@ int refresh_gyro_data() {
 
 uint32_t lastMeasurementTime = 0;
 float angles[] = {0, 0};
-
-bool autodew_timer_callback(__unused struct repeating_timer *t) {
-    if(!state.autodew) return true;
-
-    sht3x_read_data(&sht3x1);
-    sht3x_read_data(&sht3x2);
-    sht3x_read_data(&sht3x3);
-
-    autodew();
-    return true;
-}
 
 void calibrate() {
     state.dc1_zero = adc_read_value("DC1_CURRENT");
@@ -527,12 +529,6 @@ float adc_get(Data* mcld, const string& c) {
         return elevation;
     } else if(c == "GPS1_SATELLITE_COUNT") {
         return satelliteNum;
-    } else if(c == "DEW1") {
-        adc = (mcld->state->dew1 * 100.0f) / 65535.0f;
-    } else if(c == "DEW2") {
-        adc = (mcld->state->dew2 * 100.0f) / 65535.0f;
-    } else if(c == "DEW3") {
-        adc = (mcld->state->dew3 * 100.0f) / 65535.0f;
     } else if(c == "GYRO_X") {
         adc = angles[0];
     } else if(c == "GYRO_Y") {
@@ -576,10 +572,6 @@ void core1_entry() {
 
     Data* mcld = (Data*) multicore_fifo_pop_blocking();
 
-    alarm_pool_t* autodew_timer = alarm_pool_create_with_unused_hardware_alarm(4);
-    repeating_timer rpt;
-    alarm_pool_add_repeating_timer_ms(autodew_timer, 1000, autodew_timer_callback, NULL, &rpt);
-
 #ifdef GPS0_ENABLED
     gpio_init(GPS0_ENABLE);
     gpio_set_dir(GPS0_ENABLE, GPIO_OUT);
@@ -593,6 +585,8 @@ void core1_entry() {
     irq_set_priority(UART0_IRQ, PICO_HIGHEST_IRQ_PRIORITY);
     //gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
 #endif
+
+    multicore_lockout_victim_init();
 
     //int iteration = 1;
     while(true) {
@@ -668,6 +662,14 @@ void core1_entry() {
             else if(c == "SHT3X2_HUM") mcld->sht2_hum = adc;
             else if(c == "SHT3X3_HUM") mcld->sht3_hum = adc;
             else if(c == "INPUT_VOLTAGE") mcld->input_voltage = adc;
+        }
+
+        if(mcld->state->autodew) {
+            sht3x_read_data(&sht3x1);
+            sht3x_read_data(&sht3x2);
+            sht3x_read_data(&sht3x3);
+
+            autodew(mcld);
         }
         //sleep_ms(50);
     }
@@ -918,9 +920,9 @@ int main() {
                                 state.dc5 = false;
                             gpio_put(pin, false);
                         } else {
-                            if(commands[1] == "AUTODEW")
+                            if(commands[1] == "AUTODEW") {
                                 state.autodew = false;
-                            if(commands[1] == "GPS1") {
+                            } else if(commands[1] == "GPS1") {
                                 state.gps_sleep = false;
                                 gpio_put(GPS0_ENABLE, true);
                             }
@@ -953,9 +955,9 @@ int main() {
                                 state.dc5 = true;
                             gpio_put(pin, true);
                         } else {
-                            if(commands[1] == "AUTODEW")
+                            if(commands[1] == "AUTODEW") {
                                 state.autodew = true;
-                            else if(commands[1] == "GPS1") {
+                            } else if(commands[1] == "GPS1") {
                                 gpio_put(GPS0_ENABLE, false);
                                 state.gps_sleep = true;
                             }
