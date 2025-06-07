@@ -32,6 +32,7 @@
 using namespace std;
 
 State state;
+Data mcd;
 
 struct ads1115_adc adc1;
 struct ads1115_adc adc2;
@@ -159,15 +160,21 @@ void check_stack_usage() {
 }
 
 float temperature_calc_ntc(uint16_t adc) {
+    // To prevent division by 0
+    if(adc == 0 || adc == 65535) return -273.15;
     // https://arduinodiy.wordpress.com/2015/11/10/measuring-temperature-with-ntc-the-steinhart-hart-formula/
     float ntc_resistance = NTC_RESISTOR / ((65535.0F / (float)adc) - 1);
+    // To prevent log()ing non-positive values
+    if(ntc_resistance <= 0.0F) return -273.15;
     // https://en.wikipedia.org/wiki/Steinhart%E2%80%93Hart_equation
-    float temperature = pow(NTC_A + NTC_B * log(ntc_resistance) + NTC_C * pow(log(ntc_resistance), 3), -1);
+    float tempInverse = NTC_A + NTC_B * log(ntc_resistance) + NTC_C * pow(log(ntc_resistance), 3);
+    if(tempInverse == 0.0F) return -273.15;
+    float temperature = 1 / tempInverse;
     // To convert from Kelvins to degrees Celcius
     return temperature - 273.15;
 }
 
-static uint16_t adc_buffer[100];
+uint16_t adc_buffer[100];
 uint16_t adc_read(ads1115_adc &adc, int pin, int repeat) {
     auto mux = ADS1115_MUX_SINGLE_0;
     if(pin == 1)
@@ -275,6 +282,7 @@ void i2c_debug(bool isForce) {
     if(DEBUG_INIT_MESSAGES || isForce)    cout << endl;
 }
 
+string partS;
 void gps0_callback() {
     char ch;
     //cout << "GPS0 Callback from core " << get_core_num() << endl;
@@ -299,18 +307,43 @@ void gps0_callback() {
 #ifdef DEBUG_GPS
             cout << gps0_rx << flush;
 #endif
-            //cout << flush;
-            try {
-                nmea::sentence nmea_sentence(gps0_rx);
-                if(nmea_sentence.type() == "GGA") {
-                    nmea::gga gga(nmea_sentence);
-                    if(gga.latitude.exists()) lat = gga.latitude.get();
-                    if(gga.longitude.exists()) lng = gga.longitude.get();
-                    if(gga.altitude.exists()) elevation = gga.altitude.get();
-                    if(gga.satellite_count.exists()) satelliteNum = gga.satellite_count.get();
+
+            // DIY NMEA parser
+            // The "commercial" one was taking up too much RAM and constantly failing on allocations.
+            int part = 0;
+            for(int i = 0; i < gps0_rx.length(); i++) {
+                char c = gps0_rx[i];
+                if(c == '\n') {
+                    partS.clear();
+                    part = 0;
+                    break;
                 }
-            } catch(exception& e) {
-                cout << "Exception received in GPS with " << gps0_rx << " - exception: " << e.what() << endl;
+                if(c == ',') {
+                    // Process
+                    if(part == 0 && partS != "$GPGGA") {
+                        partS.clear();
+                        part = 0;
+                        break;
+                    }
+                    if(part == 2 && partS != "") {
+                        float l = stof(partS);
+                        int minutes = l / 100.0F;
+                        float seconds = (l - minutes * 100) / 60.0F;
+                        lat = (float)minutes + seconds;
+                    } else if(part == 3 && partS == "S") lat *= -1;
+                    else if(part == 4 && partS != "") {
+                        float l = stof(partS);
+                        int minutes = l / 100.0F;
+                        float seconds = (l - minutes * 100) / 60.0F;
+                        lng = (float)minutes + seconds;
+                    } else if(part == 5 && partS == "W") lng *= -1;
+                    else if(part == 7 && partS != "") satelliteNum = stoi(partS);
+                    else if(part == 8 && partS != "") elevation = stof(partS);
+                    part++;
+                    partS.clear();
+                    continue;
+                }
+                partS += c;
             }
             gps0_rx.clear();
         }
@@ -318,9 +351,12 @@ void gps0_callback() {
 }
 
 double dew_point(double tempC, double humidity) {
+    if(humidity <= 0) return -1000;
     double a = 17.62;
     double b = 243.12;
+    if(b == -tempC) return -1000;
     double gamma = (a * tempC) / (b + tempC) + log(humidity / 100.0);
+    if(a == -gamma) return -1000;
     return (b * gamma) / (a - gamma);
 }
 
@@ -390,7 +426,6 @@ int refresh_gyro_data() {
         bmi160_median(&bmi160_1);
         return 0;
     }
-    //cout << err << endl;
 
     err = bmi160_setup(&bmi160_2);
     if(err < 0) bmi160_trigger_error(&bmi160_2);
@@ -398,7 +433,6 @@ int refresh_gyro_data() {
         bmi160_median(&bmi160_2);
         return 1;
     }
-    //cout << err << endl;
 
     err = bmi160_setup(&bmi160_3);
     if(err < 0) bmi160_trigger_error(&bmi160_3);
@@ -406,7 +440,6 @@ int refresh_gyro_data() {
         bmi160_median(&bmi160_3);
         return 2;
     }
-    //cout << err << endl;
 
     return -1;
 }
@@ -415,8 +448,6 @@ uint32_t lastMeasurementTime = 0;
 float angles[] = {0, 0};
 
 bool autodew_timer_callback(__unused struct repeating_timer *t) {
-    //cout << "Autodew from core " << get_core_num() << endl;
-
     if(!state.autodew) return true;
 
     sht3x_read_data(&sht3x1);
@@ -439,26 +470,26 @@ void calibrate() {
     state.input_zero = adc_read_value("INPUT_CURRENT");
 }
 
-float adc_get(string c) {
+float adc_get(Data* mcld, const string& c) {
     float adc = adc_read_value(c);
     if(c == "DEW1_CURRENT")
-        adc = ((adc - (float)state.dew1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW1_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dew1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW1_CURRENT_RESOLUTION;
     else if(c == "DEW2_CURRENT")
-        adc = ((adc - (float)state.dew2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW2_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dew2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW2_CURRENT_RESOLUTION;
     else if(c == "DEW3_CURRENT")
-        adc = ((adc - (float)state.dew3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW3_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dew3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DEW3_CURRENT_RESOLUTION;
     else if(c == "DC1_CURRENT")
-        adc = ((adc - (float)state.dc1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC1_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dc1_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC1_CURRENT_RESOLUTION;
     else if(c == "DC2_CURRENT")
-        adc = ((adc - (float)state.dc2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC2_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dc2_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC2_CURRENT_RESOLUTION;
     else if(c == "DC3_CURRENT")
-        adc = ((adc - (float)state.dc3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC3_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dc3_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC3_CURRENT_RESOLUTION;
     else if(c == "DC4_CURRENT")
-        adc = ((adc - (float)state.dc4_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC4_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dc4_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC4_CURRENT_RESOLUTION;
     else if(c == "DC5_CURRENT")
-        adc = ((adc - (float)state.dc5_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC5_CURRENT_RESOLUTION;
+        adc = ((adc - (float)mcld->state->dc5_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / DC5_CURRENT_RESOLUTION;
     else if(c == "INPUT_CURRENT")
-        adc = ((adc - (float)state.input_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / INPUT_CURRENT_RESOLUTION + INPUT_BASE_CURRENT;
+        adc = ((adc - (float)mcld->state->input_zero) * ADS1115_BIT_TO_MV * ACS712_CURRENT_MULTIPLY) / INPUT_CURRENT_RESOLUTION + INPUT_BASE_CURRENT;
     else if(c == "EXT1_ANALOG_TEMP")
         adc = temperature_calc_ntc(adc);
     else if(c == "EXT2_ANALOG_TEMP")
@@ -497,11 +528,11 @@ float adc_get(string c) {
     } else if(c == "GPS1_SATELLITE_COUNT") {
         return satelliteNum;
     } else if(c == "DEW1") {
-        adc = (state.dew1 * 100.0f) / 65535.0f;
+        adc = (mcld->state->dew1 * 100.0f) / 65535.0f;
     } else if(c == "DEW2") {
-        adc = (state.dew2 * 100.0f) / 65535.0f;
+        adc = (mcld->state->dew2 * 100.0f) / 65535.0f;
     } else if(c == "DEW3") {
-        adc = (state.dew3 * 100.0f) / 65535.0f;
+        adc = (mcld->state->dew3 * 100.0f) / 65535.0f;
     } else if(c == "GYRO_X") {
         adc = angles[0];
     } else if(c == "GYRO_Y") {
@@ -512,7 +543,7 @@ float adc_get(string c) {
 }
 
 const int ADCS_SIZE = 20;
-static const string adcs[ADCS_SIZE] = {
+static const string adcs[] = {
     "DEW1_CURRENT",
     "DEW2_CURRENT",
     "DEW3_CURRENT",
@@ -535,42 +566,14 @@ static const string adcs[ADCS_SIZE] = {
     "INPUT_VOLTAGE",
 };
 
-struct Data {
-    State* state;
-    float input_current = 0.0;
-    float dew1_current = 0.0;
-    float dew2_current = 0.0;
-    float dew3_current = 0.0;
-    float dc1_current = 0.0;
-    float dc2_current = 0.0;
-    float dc3_current = 0.0;
-    float dc4_current = 0.0;
-    float dc5_current = 0.0;
-    float ext1_analog_temp = 0.0;
-    float ext2_analog_temp = 0.0;
-    float ext3_analog_temp = 0.0;
-    float dew_point = 0.0;
-    float sht1_temp = 0.0;
-    float sht2_temp = 0.0;
-    float sht3_temp = 0.0;
-    float sht1_hum = 0.0;
-    float sht2_hum = 0.0;
-    float sht3_hum = 0.0;
-    float input_voltage = 0.0;
-    float gps1_lat = 0.0;
-    float gps1_lng = 0.0;
-    float gps1_elevation = 0.0;
-    int gps1_satellite_count = 0;
-    float gyro_x = 0.0;
-    float gyro_y = 0.0;
-};
-
-Data mcd;
-
 // CORE 1
 //
 // Reserved for I2C operations
+//
+// Core 1 seemingly has some issues with sleep_ms(), so avoid it if possible.
 void core1_entry() {
+    partS.reserve(100);
+
     Data* mcld = (Data*) multicore_fifo_pop_blocking();
 
     alarm_pool_t* autodew_timer = alarm_pool_create_with_unused_hardware_alarm(4);
@@ -591,7 +594,10 @@ void core1_entry() {
     //gpio_set_irq_enabled_with_callback(UART0_RX_PIN, GPIO_IRQ_EDGE_RISE, true, &gps0_callback);
 #endif
 
+    //int iteration = 1;
     while(true) {
+        //cout << "Start " << iteration << endl;
+        //iteration++;
         //check_stack_usage();
         int gyro = -1;
         for(int i = 0; i < 3; i++) {
@@ -612,13 +618,12 @@ void core1_entry() {
         }
         mcld->gyro_x = angles[0];
         mcld->gyro_y = angles[1];
+        mcld->gps1_lat = lat;
+        mcld->gps1_lng = lng;
+        mcld->gps1_elevation = elevation;
+        mcld->gps1_satellite_count = satelliteNum;
 
         for(int i = 0; i < ADCS_SIZE; i++) {
-            mcld->gps1_lat = lat;
-            mcld->gps1_lng = lng;
-            mcld->gps1_elevation = elevation;
-            mcld->gps1_satellite_count = satelliteNum;
-
 #ifdef WATCHDOG_ENABLED
 #ifdef WATCHDOG_DEBUG
             cout << "Watchdog updated!" << endl;
@@ -627,7 +632,7 @@ void core1_entry() {
 #endif
 
             string c = adcs[i];
-            float adc = adc_get(c);
+            float adc = adc_get(mcld, c);
 
             if(c == "DEW1_CURRENT")
                 mcld->dew1_current = adc;
@@ -664,7 +669,7 @@ void core1_entry() {
             else if(c == "SHT3X3_HUM") mcld->sht3_hum = adc;
             else if(c == "INPUT_VOLTAGE") mcld->input_voltage = adc;
         }
-        sleep_ms(50);
+        //sleep_ms(50);
     }
 }
 
@@ -840,6 +845,7 @@ int main() {
     multicore_fifo_push_blocking((uint32_t)&mcd);
 
     string c;
+    c.reserve(50);
     int commandsLength = 0;
     while(true) {
         tud_task();
@@ -1064,6 +1070,12 @@ int main() {
                     } else if(commands[0] == "RESET") {
                         cout << "OK_BYE" << endl;
                         watchdog_reboot(0, 0, 0);
+                    } else if(commands[0] == "RESET_CORE") {
+                        // This probably doesn't work
+                        multicore_reset_core1();
+                        multicore_launch_core1(core1_entry);
+                        multicore_fifo_push_blocking((uint32_t)&mcd);
+                        cout << "OK" << endl;
                     } else if(commands[0] == "I2CDEBUG") {
                         i2c_debug(true);
                         cout << "OK" << endl;
@@ -1073,6 +1085,10 @@ int main() {
                     } else if(commands[0] == "CALIBRATE") {
                         calibrate();
                         cout << "OK" << endl;
+                    } else if(commands[0] == "CRASH") {
+#ifdef DEBUG_CRASH
+                        throw;
+#endif
                     } else {
                         cout << "UNDEFINED_COMMAND" << endl;
                     }
