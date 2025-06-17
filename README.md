@@ -1,5 +1,9 @@
 # AstroPSU-Pico
-Firmware for the open-source astronomical Power Supply Unit (PSU), AstroPSU.
+
+![2025-06-17-19-27-07-969](https://github.com/user-attachments/assets/f284b42a-d26c-4fa1-9a52-976c16038a1b)
+![2025-06-17-19-26-46-125](https://github.com/user-attachments/assets/701783e9-5964-421d-81d9-82acfab0c78e)
+
+Firmware for the open-source astronomy Power Supply Unit (PSU), AstroPSU.
 
 ## External Libraries
 All external libraries come either in this repository or as a submodule, so make sure to `git clone` with `--recursive` argument.
@@ -14,6 +18,11 @@ This project can relatively easily be turned into an ASCOM Alpaca device, by jus
 
 ## INDI Driver
 INDI driver is not planned for now.
+
+## Hardware
+PCBs and circuit design: https://oshwlab.com/mytja/telescopepsu
+
+Enclosure design: https://cad.onshape.com/documents/a8ee8e159a2479000dca3524 
 
 ## License
 Mozilla Public License 2.0
