@@ -26,6 +26,7 @@
 #include <vector>
 #include <utility>
 #include <pico/multicore.h>
+#include <queue>
 
 using namespace std;
 
@@ -567,6 +568,8 @@ static const string adcs[] = {
     "INPUT_VOLTAGE",
 };
 
+queue<float> cpuTemps(deque<float>(55));
+
 // CORE 1
 //
 // Reserved for I2C operations
@@ -574,6 +577,8 @@ static const string adcs[] = {
 // Core 1 seemingly has some issues with sleep_ms(), so avoid it if possible.
 void core1_entry() {
     partS.reserve(100);
+
+    float cpuAverage = 0.0F;
 
     Data* mcld = (Data*) multicore_fifo_pop_blocking();
 
@@ -679,21 +684,27 @@ void core1_entry() {
 
         mcld->cpu_temp = get_cpu_temp();
 
+        // TODO: verjetno ta floating point matematika kje zaserje eventuelno
+        if(cpuTemps.size() >= 50) {
+            cpuAverage -= cpuTemps.front();
+            cpuTemps.pop();
+        }
+        cpuTemps.push(mcld->cpu_temp);
+        cpuAverage += mcld->cpu_temp;
+
 #ifdef FAN_ENABLED
         if(!mcld->state->disable_fan) {
-            float normal = mcld->cpu_temp - FAN_MIN_TEMP;
-            float speed = 65535.0f * min(normal / FAN_MAX_TEMP_DELTA, 1.0f);
+            float normal = (cpuAverage / (float)cpuTemps.size()) - FAN_MIN_TEMP;
+            float speed = 65535.0f * max(min(normal / FAN_MAX_TEMP_DELTA, 1.0f), 0.0f);
             uint16_t pwm = max(min((uint16_t)speed, (uint16_t)65535), (uint16_t)0);
 #ifdef FAN_USE_CURRENT_ALONGSIDE_TEMP
-            float speedC = 65535.0f * min(mcld->input_current / FAN_MAX_CURRENT, 1.0f);
+            float speedC = 65535.0f * max(min(mcld->input_current / FAN_MAX_CURRENT, 1.0f), 0.0f);
             uint16_t currentPwm = max(min((uint16_t)speedC, (uint16_t)65535), (uint16_t)0);
             pwm = max(pwm, currentPwm);
 #endif
-            //cout << pwm << " " << mcld->cpu_temp << " " << mcld->input_current << endl;
-            if(pwm >= 15000) {
-                // Pod tem nivojem ventilator proizvaja visoke zvoke, ki so pretežno nezaželeni.
-                pwm_set_gpio_level(FAN, pwm);
-            }
+
+            // Pod nivojem 15000 ventilator proizvaja visoke zvoke, ki so pretežno nezaželeni.
+            pwm_set_gpio_level(FAN, pwm >= 15000 ? pwm : 0);
         }
 #endif
         //sleep_ms(50);
