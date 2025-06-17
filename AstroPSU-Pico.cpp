@@ -1,4 +1,5 @@
 #include "pico/binary_info.h"
+#include "pico/bootrom.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/spi.h"
@@ -54,6 +55,13 @@ bool reserved_addr(uint8_t addr) {
 
 uint32_t millis() {
     return to_ms_since_boot(get_absolute_time());
+}
+
+float get_cpu_temp() {
+    adc_select_input(4);
+    uint16_t value = adc_read();
+    float temp = 27.0f - ((value * 3.3f / 4095.0f) - 0.706f) / 0.001721f;
+    return temp;
 }
 
 void save_data() {
@@ -668,6 +676,26 @@ void core1_entry() {
 
             autodew(mcld);
         }
+
+        mcld->cpu_temp = get_cpu_temp();
+
+#ifdef FAN_ENABLED
+        if(!mcld->state->disable_fan) {
+            float normal = mcld->cpu_temp - FAN_MIN_TEMP;
+            float speed = 65535.0f * min(normal / FAN_MAX_TEMP_DELTA, 1.0f);
+            uint16_t pwm = max(min((uint16_t)speed, (uint16_t)65535), (uint16_t)0);
+#ifdef FAN_USE_CURRENT_ALONGSIDE_TEMP
+            float speedC = 65535.0f * min(mcld->input_current / FAN_MAX_CURRENT, 1.0f);
+            uint16_t currentPwm = max(min((uint16_t)speedC, (uint16_t)65535), (uint16_t)0);
+            pwm = max(pwm, currentPwm);
+#endif
+            //cout << pwm << " " << mcld->cpu_temp << " " << mcld->input_current << endl;
+            if(pwm >= 15000) {
+                // Pod tem nivojem ventilator proizvaja visoke zvoke, ki so pretežno nezaželeni.
+                pwm_set_gpio_level(FAN, pwm);
+            }
+        }
+#endif
         //sleep_ms(50);
     }
 }
@@ -688,6 +716,12 @@ int main() {
     pwm_setup(DEW1);
     pwm_setup(DEW2);
     pwm_setup(DEW3);
+#ifdef FAN_ENABLED
+    pwm_setup(FAN);
+    pwm_set_gpio_level(FAN, 0);
+    //gpio_setup(FAN);
+    //gpio_put(FAN, false);
+#endif
 
     if(DEBUG_INIT_MESSAGES) {
         cout << "PWM setup completed!" << endl;
@@ -835,7 +869,9 @@ int main() {
 #endif
 
     adc_gpio_init(28);
-    adc_select_input(2);
+    adc_set_round_robin(0);
+    adc_set_temp_sensor_enabled(1);
+
     if(DEBUG_INIT_MESSAGES) {
         cout << "iADC setup completed!" << endl;
     }
@@ -899,7 +935,7 @@ int main() {
                             continue;
                         }
 
-                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
+                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1" && commands[1] != "FAN") {
                             int pin = translate_to_pin(commands[1]);
                             if(pin == -1) {
                                 cout << "INVALID_COMMAND_ARGS" << endl;
@@ -922,6 +958,8 @@ int main() {
                             } else if(commands[1] == "GPS1") {
                                 state.gps_sleep = false;
                                 gpio_put(GPS0_ENABLE, true);
+                            } else if(commands[1] == "FAN") {
+                                state.disable_fan = false;
                             }
                         }
 #ifdef SAVE_ENABLED
@@ -934,7 +972,7 @@ int main() {
                             continue;
                         }
 
-                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1") {
+                        if(commands[1] != "AUTODEW" && commands[1] != "GPS1" && commands[1] != "FAN") {
                             int pin = translate_to_pin(commands[1]);
                             if(pin == -1) {
                                 cout << "INVALID_COMMAND_ARGS" << endl;
@@ -957,6 +995,9 @@ int main() {
                             } else if(commands[1] == "GPS1") {
                                 gpio_put(GPS0_ENABLE, false);
                                 state.gps_sleep = true;
+                            } else if(commands[1] == "FAN") {
+                                state.disable_fan = true;
+                                pwm_set_gpio_level(FAN, 0);
                             }
                         }
 #ifdef SAVE_ENABLED
@@ -1058,6 +1099,7 @@ int main() {
                         else if(commands[1] == "DEW3") adc = (state.dew3 * 100.0f) / 65535.0f;
                         else if(commands[1] == "GYRO_X") adc = mcd.gyro_x;
                         else if(commands[1] == "GYRO_Y") adc = mcd.gyro_y;
+                        else if(commands[1] == "CPU_TEMP") adc = mcd.cpu_temp;
                         adc = round(adc * 100.0) / 100.0;
                         cout << adc << endl;
                     } else if(commands[0] == "RAWADCGET") {
@@ -1088,6 +1130,10 @@ int main() {
 #ifdef DEBUG_CRASH
                         throw;
 #endif
+                    } else if(commands[0] == "BOOTSEL") {
+                        cout << "OK" << endl;
+                        multicore_reset_core1();
+                        reset_usb_boot(1, 0);
                     } else {
                         cout << "UNDEFINED_COMMAND" << endl;
                     }

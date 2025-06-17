@@ -43,6 +43,13 @@ const bool DEBUG_INIT_MESSAGES = false;
 #define DEW1 8
 //#define AUTODEW_FORCE_TEMPERATURE 7.2
 
+#define FAN_ENABLED
+#define FAN 22
+#define FAN_MIN_TEMP 33.0f
+#define FAN_MAX_TEMP_DELTA 5.0f
+#define FAN_USE_CURRENT_ALONGSIDE_TEMP
+#define FAN_MAX_CURRENT 7.0f
+
 // DC jacks
 #define DC1 9
 #define DC2 10
@@ -161,6 +168,7 @@ struct State {
     uint16_t dc4_zero = 0;
     uint16_t dc5_zero = 0;
     uint16_t input_zero = 0;
+    bool disable_fan = false;
 };
 
 struct Data {
@@ -191,4 +199,5 @@ struct Data {
     int gps1_satellite_count = 0;
     float gyro_x = 0.0;
     float gyro_y = 0.0;
+    float cpu_temp = 0.0;
 };
