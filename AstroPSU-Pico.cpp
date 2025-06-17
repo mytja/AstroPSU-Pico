@@ -910,7 +910,7 @@ int main() {
                     }
 
                     if(commands[0] == "FWINFO") {
-                        cout << "AstroPSU-Pico v0.0.1-beta " << __DATE__ << " " << __TIME__ << endl;
+                        cout << "AstroPSU-Pico v1.0.1 " << __DATE__ << " " << __TIME__ << endl;
                     } else if(commands[0] == "PWMSET") {
                         if(commandsLength != 3) {
                             cout << "INVALID_COMMAND_ARGS" << endl;
